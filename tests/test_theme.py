@@ -62,3 +62,11 @@ def test_portrait_still_images_only(tmp_path):
     (tmp_path / "mira").mkdir()
     (tmp_path / "mira" / "calm.mp4").write_bytes(b"x")
     assert Theme(tmp_path).expressions() == []
+
+
+def test_optional_avatar(tmp_path):
+    t = make_theme(tmp_path, ["calm"])
+    assert t.avatar_url() is None
+    (tmp_path / "mira" / "avatar.png").write_bytes(b"x")
+    assert t.avatar_url() == "/theme/mira/avatar.png"
+    assert "avatar" not in t.expressions()

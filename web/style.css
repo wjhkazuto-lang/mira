@@ -263,4 +263,6 @@ body.has-bg .app, body.has-video .app {
     border: 1px solid var(--gold);
     background: var(--avatar) no-repeat var(--avatar-x) var(--avatar-y) / var(--avatar-bg-size), var(--surface);
   }
+  /* 有裁好的 avatar.png 时直接铺满圆圈 */
+  body.has-avatar-image .bubble.mira.first::before { background: var(--avatar) center / cover no-repeat, var(--surface); }
 }

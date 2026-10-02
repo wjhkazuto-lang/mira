@@ -99,7 +99,7 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
 
     @app.get("/api/theme")
     async def theme_info():
-        return {"expressions": theme.urls(), "backgrounds": theme.backgrounds()}
+        return {"expressions": theme.urls(), "backgrounds": theme.backgrounds(), "avatar": theme.avatar_url()}
 
     @app.get("/")
     def index():

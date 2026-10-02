@@ -257,7 +257,12 @@
     if (urls.length) {
       urls.forEach((u) => { new Image().src = u; });  // 预加载，换表情时不闪
       document.body.classList.add("has-portrait");
-      document.body.style.setProperty("--avatar", `url("${theme.expressions.calm || urls[0]}")`);
+      if (theme.avatar) {
+        document.body.style.setProperty("--avatar", `url("${theme.avatar}")`);
+        document.body.classList.add("has-avatar-image");
+      } else {
+        document.body.style.setProperty("--avatar", `url("${theme.expressions.calm || urls[0]}")`);
+      }
       setExpression("calm");
     }
     const bg = pickBackground(theme.backgrounds);

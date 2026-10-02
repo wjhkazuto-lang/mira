@@ -44,6 +44,11 @@ class Theme:
     def urls(self) -> dict[str, str]:
         return {name: f"/theme/mira/{self._find('mira', name).name}" for name in self.expressions()}
 
+    def avatar_url(self) -> str | None:
+        """窄屏气泡旁的小头像（theme/mira/avatar.png，裁好的脸部）；没有就用立绘本身。"""
+        path = self._find("mira", "avatar")
+        return f"/theme/mira/{path.name}" if path else None
+
     def backgrounds(self) -> dict[str, str]:
         out = {}
         for slot in BACKGROUND_SLOTS:

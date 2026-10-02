@@ -251,7 +251,7 @@ def test_theme_api_and_static(tmp_path):
 
 
 def test_theme_api_without_theme(client):
-    assert client.get("/api/theme").json() == {"expressions": {}, "backgrounds": {}}
+    assert client.get("/api/theme").json() == {"expressions": {}, "backgrounds": {}, "avatar": None}
 
 
 def test_static_files_revalidated(client):
