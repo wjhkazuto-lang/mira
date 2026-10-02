@@ -188,7 +188,7 @@ class Writer:
             purpose="writer",
             model=self._settings.background_model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=4000,
+            max_tokens=8000,
         )
 
         ops, skipped = validate_ops(data.get("ops"), self._store)

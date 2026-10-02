@@ -203,7 +203,7 @@ class ChatEngine:
         )
         try:
             data = await self._llm.complete_json(
-                purpose="chat", model=self._settings.chat_model, messages=messages, max_tokens=1000
+                purpose="chat", model=self._settings.chat_model, messages=messages, max_tokens=4000
             )
             reply = parse_reply(data)
         except LLMBadJSON as e:

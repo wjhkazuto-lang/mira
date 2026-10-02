@@ -158,3 +158,10 @@ async def test_evidence_rechecked_after_llm_call(store, clock):
                      out([{"op": "add", "content": "熬夜", "evidence": [e1.id, e2.id]}]))
     await Reflector(store, EMB, llm, SETTINGS, now=clock.now).run()
     assert store.list_memories("pattern") == []
+
+
+async def test_reflector_leaves_room_for_reasoning(store, clock):
+    episodes(store)
+    r, llm = make(store, clock, [out()])
+    await r.run()
+    assert llm.calls[0]["max_tokens"] >= 8000

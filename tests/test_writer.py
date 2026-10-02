@@ -158,7 +158,7 @@ async def test_large_backlog_processed_in_chunks(store, clock):
     assert 0 < done < 6 and len(llm.calls[0]["messages"][0]["content"]) < WRITER_CHUNK_CHARS + 6000
     while store.unprocessed_messages():
         await w.run()
-    assert llm.calls[0]["max_tokens"] == 4000
+    assert llm.calls[0]["max_tokens"] == 8000
 
 
 async def test_huge_message_truncated_in_prompt(store, clock):

@@ -310,3 +310,11 @@ async def test_user_message_echoed_with_client_id(mstore, mclock):
     echo = [e for e in box.events if e["type"] == "user_message"]
     assert echo == [{"type": "user_message", "id": msg.id, "text": "在吗",
                      "created_at": msg.created_at.isoformat(), "client_id": "c1"}]
+
+
+async def test_chat_leaves_room_for_reasoning(mstore, mclock):
+    # V4 Pro 的思考 token 也计入 max_tokens；实测一次思考就用掉 1000，正文为空
+    engine, llm, _ = make(mstore, mclock, [reply("嗯")])
+    await engine.on_user_message("hi")
+    await mclock.advance(10)
+    assert llm.calls[0]["max_tokens"] >= 4000
