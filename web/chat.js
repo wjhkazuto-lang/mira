@@ -261,10 +261,28 @@
       setExpression("calm");
     }
     const bg = pickBackground(theme.backgrounds);
-    if (bg) {
+    if (bg && /\.(mp4|webm)$/i.test(bg)) {
+      startVideo(bg);
+    } else if (bg) {
       document.body.style.setProperty("--bg-image", `url("${bg}")`);
       document.body.classList.add("has-bg");
     }
+  }
+
+  // 视频背景：静音循环；窗口不在前台时暂停，省电也不占性能
+  function startVideo(url) {
+    const video = document.getElementById("bg-video");
+    video.src = url;
+    document.body.classList.add("has-video");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const sync = () => {
+      if (reduceMotion || document.hidden || !document.hasFocus()) video.pause();
+      else video.play().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    window.addEventListener("blur", sync);
+    video.addEventListener("loadeddata", sync, { once: true });
   }
 
   loadTheme();

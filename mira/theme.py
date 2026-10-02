@@ -2,7 +2,7 @@
 
 素材放在项目的 theme/ 文件夹里（不提交 git）：
     theme/mira/<表情>.png         比如 calm.png、happy.png
-    theme/background/<时段>.jpg   day / dusk / night，任选几张
+    theme/background/<时段>.jpg   day / dusk / night，任选几张；也可以是 .gif / .mp4 / .webm
 没有素材时一切照旧，界面保持朴素样式。
 """
 
@@ -23,14 +23,16 @@ EXPRESSIONS = {
 APPROACH_DEFAULTS = {"comfort": "gentle", "crisis": "worried", "raise_issue": "calm", "normal": "calm"}
 BACKGROUND_SLOTS = ("day", "dusk", "night")
 IMAGE_SUFFIXES = (".png", ".webp", ".jpg", ".jpeg")
+# 背景还可以是动图或视频（视频在页面里静音循环播放）
+BACKGROUND_SUFFIXES = IMAGE_SUFFIXES + (".gif", ".mp4", ".webm")
 
 
 class Theme:
     def __init__(self, root: Path):
         self.root = root
 
-    def _find(self, folder: str, name: str) -> Path | None:
-        for suffix in IMAGE_SUFFIXES:
+    def _find(self, folder: str, name: str, suffixes: tuple[str, ...] = IMAGE_SUFFIXES) -> Path | None:
+        for suffix in suffixes:
             path = self.root / folder / f"{name}{suffix}"
             if path.is_file():
                 return path
@@ -45,7 +47,7 @@ class Theme:
     def backgrounds(self) -> dict[str, str]:
         out = {}
         for slot in BACKGROUND_SLOTS:
-            path = self._find("background", slot)
+            path = self._find("background", slot, BACKGROUND_SUFFIXES)
             if path:
                 out[slot] = f"/theme/background/{path.name}"
         return out

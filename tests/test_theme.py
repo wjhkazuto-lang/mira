@@ -47,3 +47,18 @@ def test_prompt_lists_only_available(tmp_path):
 
 def test_expression_names_have_chinese_labels():
     assert {"calm", "talk", "annoyed", "surprised", "worried", "gentle", "happy", "smile"} == set(EXPRESSIONS)
+
+
+def test_video_and_gif_backgrounds(tmp_path):
+    t = make_theme(tmp_path, backgrounds=["night.mp4", "day.gif", "dusk.webm"])
+    assert t.backgrounds() == {
+        "day": "/theme/background/day.gif",
+        "dusk": "/theme/background/dusk.webm",
+        "night": "/theme/background/night.mp4",
+    }
+
+
+def test_portrait_still_images_only(tmp_path):
+    (tmp_path / "mira").mkdir()
+    (tmp_path / "mira" / "calm.mp4").write_bytes(b"x")
+    assert Theme(tmp_path).expressions() == []

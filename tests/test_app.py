@@ -258,3 +258,16 @@ def test_static_files_revalidated(client):
     # 更新界面后不用强制刷新：浏览器每次都先问服务器文件变没变
     assert client.get("/static/style.css").headers.get("cache-control") == "no-cache"
     assert client.get("/").headers.get("cache-control") == "no-cache"
+
+
+def test_video_background_supports_range_requests(tmp_path):
+    # Safari 播放视频必须支持按段读取（Range）
+    theme = tmp_path / "theme"
+    (theme / "background").mkdir(parents=True)
+    (theme / "background" / "night.mp4").write_bytes(b"0123456789")
+    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(theme)})
+    with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as c:
+        assert c.get("/api/theme").json()["backgrounds"] == {"night": "/theme/background/night.mp4"}
+        r = c.get("/theme/background/night.mp4", headers={"Range": "bytes=2-5"})
+        assert r.status_code == 206 and r.content == b"2345"
+        assert r.headers["content-type"] == "video/mp4"
