@@ -1,0 +1,6 @@
+{"name": "带日期的承诺", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "下周三下午有个面试，我得在那之前把简历改完"},
+              {"role": "assistant", "content": "可以啊！是什么岗位？"},
+              {"role": "user", "content": "一家做 AI 应用的公司，前端岗"}],
+ "run": ["writer"],
+ "expect": [{"type": "commitment", "contains": "面试", "due_at": "2026-10-07"}]}

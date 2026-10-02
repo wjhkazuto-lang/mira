@@ -1,0 +1,6 @@
+{"name": "承诺完成", "now": "2026-10-02T21:00:00+08:00",
+ "seed_memories": [{"type": "commitment", "content": "周五前把简历改完", "status": "open", "due_at": "2026-10-02"}],
+ "messages": [{"role": "user", "content": "简历终于改完了！刚刚投出去了"},
+              {"role": "assistant", "content": "太好了，辛苦啦"}],
+ "run": ["writer"],
+ "expect": [{"type": "commitment", "contains": "简历", "status": "done"}]}

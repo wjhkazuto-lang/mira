@@ -1,0 +1,6 @@
+{"name": "Mira 的建议不算用户的打算", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "最近老是睡不好"},
+              {"role": "assistant", "content": "要不要试试睡前一小时不看手机？"},
+              {"role": "user", "content": "嗯……再说吧"}],
+ "run": ["writer"],
+ "expect": [{"type": "commitment", "max_count": 0}, {"type": "fact", "contains": "不看手机", "max_count": 0}]}

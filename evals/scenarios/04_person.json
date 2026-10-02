@@ -1,0 +1,6 @@
+{"name": "提到一个人", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "今天跟小林吵了一架。她是我大学室友，最近总觉得她在疏远我"},
+              {"role": "assistant", "content": "吵什么了？"},
+              {"role": "user", "content": "就是约了好几次都说没空，今天我忍不住说了她两句"}],
+ "run": ["writer"],
+ "expect": [{"type": "person", "subject": "小林"}]}

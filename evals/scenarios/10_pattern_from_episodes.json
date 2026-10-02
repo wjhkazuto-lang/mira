@@ -1,0 +1,6 @@
+{"name": "两次压力大熬夜 → 模式", "now": "2026-10-02T21:00:00+08:00",
+ "seed_memories": [{"type": "episode", "content": "9/28 晚：项目上线前压力很大，熬夜刷手机到三点，第二天很自责"},
+                   {"type": "episode", "content": "10/1 晚：被催进度，焦虑，又刷手机到凌晨两点多，早上起来后悔"}],
+ "messages": [],
+ "run": ["reflector"],
+ "expect": [{"type": "pattern", "min_count": 1}]}

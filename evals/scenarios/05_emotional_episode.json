@@ -1,0 +1,6 @@
+{"name": "情绪事件", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "今天被领导当着全组人的面批评了"},
+              {"role": "user", "content": "我真的好难受，感觉自己什么都做不好"},
+              {"role": "assistant", "content": "当着大家的面，这也太难受了。我在。"}],
+ "run": ["writer"],
+ "expect": [{"type": "episode", "contains": "批评"}]}

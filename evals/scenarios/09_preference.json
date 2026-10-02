@@ -1,0 +1,5 @@
+{"name": "喜好事实", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "我超级能吃辣的，吃火锅必点牛油锅底"},
+              {"role": "assistant", "content": "厉害，我记住了，下次推荐你川菜馆"}],
+ "run": ["writer"],
+ "expect": [{"type": "fact", "contains": "辣"}]}

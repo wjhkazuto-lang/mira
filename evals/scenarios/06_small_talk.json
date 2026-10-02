@@ -1,0 +1,6 @@
+{"name": "纯寒暄", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "哈哈好的"}, {"role": "assistant", "content": "嘿嘿"},
+              {"role": "user", "content": "晚安啦"}, {"role": "assistant", "content": "晚安～"}],
+ "run": ["writer"],
+ "expect": [{"type": "fact", "max_count": 0}, {"type": "person", "max_count": 0},
+            {"type": "commitment", "max_count": 0}, {"type": "episode", "min_count": 1}]}

@@ -1,0 +1,7 @@
+{"name": "换工作（替代旧事实）", "now": "2026-10-02T21:00:00+08:00",
+ "seed_memories": [{"type": "fact", "content": "在 A 公司做前端开发"}],
+ "messages": [{"role": "user", "content": "跟你说，我已经从 A 公司离职了，下周一去 B 公司上班"},
+              {"role": "assistant", "content": "哇，恭喜！B 公司是做什么的？"},
+              {"role": "user", "content": "也是前端，不过是做 AI 产品的"}],
+ "run": ["writer"],
+ "expect": [{"type": "fact", "contains": "B 公司"}, {"type": "fact", "superseded_min": 1}]}

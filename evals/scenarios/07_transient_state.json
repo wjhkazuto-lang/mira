@@ -1,0 +1,6 @@
+{"name": "一时的状态不记成事实", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "有点困，中午吃太饱了"},
+              {"role": "assistant", "content": "饭困了哈哈，要不眯一会儿？"},
+              {"role": "user", "content": "算了，等会儿还要开会"}],
+ "run": ["writer"],
+ "expect": [{"type": "fact", "max_count": 0}]}
