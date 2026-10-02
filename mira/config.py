@@ -30,6 +30,7 @@ class Settings:
     crisis_resources: str = "全国心理援助热线 12356；希望24热线 400-161-9995；紧急情况 120/110"
     db_path: Path = Path("data/mira.db")
     persona_path: Path = Path("persona.md")
+    theme_dir: Path = Path("theme")
     host: str = "127.0.0.1"
     port: int = 8000
     fake: bool = False
@@ -66,9 +67,13 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         values["persona_path"] = Path("persona.local.md")
     if values.get("fake") and "db_path" not in values:
         values["db_path"] = Path("data/dev.db")  # 开发模式默认用单独的数据库，免得假数据混进真记忆
-    for key in ("db_path", "persona_path"):
+    for key in ("db_path", "persona_path", "theme_dir"):
         path = values.get(key, getattr(Settings, key))
         values[key] = path if path.is_absolute() else PROJECT_ROOT / path
+    real_db = PROJECT_ROOT / "data" / "mira.db"
+    if values.get("fake") and values["db_path"].resolve() == real_db.resolve():
+        # 开发模式用假回复，绝不能写进真实聊天记录（.env 里的 DB_PATH 常常就是它）
+        values["db_path"] = PROJECT_ROOT / "data" / "dev.db"
     settings = Settings(**values)
     if not 0 <= settings.reflect_hour <= 23:
         raise ConfigError(f"REFLECT_HOUR 必须是 0 到 23：{settings.reflect_hour}")

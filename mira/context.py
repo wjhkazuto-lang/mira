@@ -96,6 +96,7 @@ class Reply:
     mood_read: str
     approach: str
     messages: list[str]
+    expression: str | None = None
 
 
 def parse_reply(data: dict) -> Reply | None:
@@ -107,8 +108,10 @@ def parse_reply(data: dict) -> Reply | None:
         return None
     approach = data.get("approach")
     mood = data.get("mood_read")
+    expression = data.get("expression")
     return Reply(
         mood_read=mood if isinstance(mood, str) else "",
         approach=approach if approach in APPROACHES else "unknown",
         messages=messages,
+        expression=expression if isinstance(expression, str) else None,
     )

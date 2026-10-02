@@ -31,12 +31,12 @@ class Outbox:
         return [e["type"] for e in self.replies()]
 
 
-def make(store, clock, script, attach=True, retriever=None):
+def make(store, clock, script, attach=True, retriever=None, theme=None):
     llm = FakeLLM(script)
     box = Outbox()
     engine = ChatEngine(store=store, retriever=retriever or Retriever(store, EMB, now=clock.now), llm=llm, settings=SETTINGS,
                         persona="我是 Mira", rules="规则", on_activity=lambda: box.activity.append(clock.now()),
-                        now=clock.now, sleep=clock.sleep)
+                        now=clock.now, sleep=clock.sleep, theme=theme)
     if attach:
         engine.attach(box)
     return engine, llm, box
@@ -335,3 +335,25 @@ async def test_open_goals_in_context(mstore, mclock):
     text = final_user(llm.calls[0])
     goals_section = text[text.index("正在追的目标："):text.index("进行中的承诺：")]
     assert f"#{g.id} [目标·进行中]" in goals_section
+
+
+async def test_bubbles_carry_expression_with_fallback(mstore, mclock, tmp_path):
+    from mira.theme import Theme
+
+    for name in ("calm", "gentle"):
+        (tmp_path / "mira").mkdir(exist_ok=True)
+        (tmp_path / "mira" / f"{name}.png").write_bytes(b"x")
+    data = reply("抱抱", "我在", approach="comfort") | {"expression": "happy"}  # 没有 happy 的图
+    engine, _, box = make(mstore, mclock, [data], theme=Theme(tmp_path))
+    await engine.on_user_message("好难受")
+    await mclock.advance(10)
+    bubbles = [e for e in box.events if e["type"] == "bubble"]
+    assert [b["expression"] for b in bubbles] == ["gentle", "gentle"]
+    assert assistants(mstore)[0].meta["expression"] == "gentle"
+
+
+async def test_no_theme_no_expression(mstore, mclock):
+    engine, _, box = make(mstore, mclock, [reply("嗯")])
+    await engine.on_user_message("hi")
+    await mclock.advance(10)
+    assert all("expression" not in e for e in box.events)

@@ -40,7 +40,7 @@ def test_float_settings_accept_decimals():
 
 
 def test_paths_resolved_against_project_root():
-    s = load_settings({"DEEPSEEK_API_KEY": "k"})
+    s = load_settings({"DEEPSEEK_API_KEY": "k", "PERSONA_PATH": "persona.md"})  # 不受你本地的 persona.local.md 影响
     assert s.db_path == PROJECT_ROOT / "data" / "mira.db"
     assert s.persona_path == PROJECT_ROOT / "persona.md" and s.persona_path.exists()
     assert load_settings({"DEEPSEEK_API_KEY": "k", "DB_PATH": "/tmp/x.db"}).db_path == Path("/tmp/x.db")
@@ -70,3 +70,15 @@ def test_local_persona_preferred_when_present(tmp_path, monkeypatch):
     (tmp_path / "persona.local.md").write_text("我的版本")
     assert config.load_settings({"MIRA_FAKE": "1"}).persona_path == tmp_path / "persona.local.md"
     assert config.load_settings({"MIRA_FAKE": "1", "PERSONA_PATH": "x.md"}).persona_path == tmp_path / "x.md"
+
+
+def test_theme_dir_default():
+    assert load_settings({"MIRA_FAKE": "1"}).theme_dir == PROJECT_ROOT / "theme"
+
+
+def test_fake_mode_never_uses_real_db():
+    # .env 里常常写着 DB_PATH=data/mira.db；开发模式不能因此碰到真实聊天记录
+    s = load_settings({"MIRA_FAKE": "1", "DB_PATH": "data/mira.db"})
+    assert s.db_path == PROJECT_ROOT / "data" / "dev.db"
+    s = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(PROJECT_ROOT / "data" / "mira.db")})
+    assert s.db_path == PROJECT_ROOT / "data" / "dev.db"

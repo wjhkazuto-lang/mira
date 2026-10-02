@@ -100,7 +100,7 @@ def test_parse_reply_drops_empty_bubbles():
 
 
 def test_render_and_missing_var():
-    text = render("chat_rules", crisis_resources="热线X")
+    text = render("chat_rules", crisis_resources="热线X", expression_hint="")
     assert "热线X" in text and "json" in text.lower() and "{{" not in text
     with pytest.raises(KeyError):
         render("chat_rules")
@@ -140,7 +140,7 @@ def _rule_examples():
     import json
     import re
 
-    text = render("chat_rules", crisis_resources="X")
+    text = render("chat_rules", crisis_resources="X", expression_hint="")
     return text, [json.loads(b) for b in re.findall(r"```json\n(.*?)```", text, re.S)]
 
 
@@ -157,3 +157,13 @@ def test_rules_cover_intent_levels_and_style():
     text, _ = _rule_examples()
     for phrase in ("只针对承诺", "想法", "目标", "不要复述", "最多一个问题", "说说看"):
         assert phrase in text
+
+
+def test_parse_reply_expression():
+    assert parse_reply({"approach": "normal", "messages": ["嗯"], "expression": "happy"}).expression == "happy"
+    assert parse_reply({"approach": "normal", "messages": ["嗯"], "expression": 3}).expression is None
+    assert parse_reply({"approach": "normal", "messages": ["嗯"]}).expression is None
+
+
+def test_rules_include_expression_hint():
+    assert "立绘提示ABC" in render("chat_rules", crisis_resources="X", expression_hint="立绘提示ABC")

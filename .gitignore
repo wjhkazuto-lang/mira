@@ -2,6 +2,8 @@
 .env
 data/
 persona.local.md
+# 你自己的二次元素材（立绘、背景），大多不允许二次分发
+theme/
 
 # Python
 __pycache__/

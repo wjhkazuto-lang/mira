@@ -11,6 +11,8 @@
   const STALE_UNANSWERED_MS = 2 * 60 * 1000;
 
   const { mergeMessages, applyUserEcho, applyBubble } = window.MiraSync;
+  const portraitImg = document.getElementById("portrait-img");
+  let theme = { expressions: {}, backgrounds: {} };
   let messages = [];        // {id, client_id?, role, content, created_at}；id 为 null 的是还没确认的消息
   let typing = false;       // Mira 正在输入
   let notice = null;        // {text, retry: bool}
@@ -56,6 +58,7 @@
       }
       const b = el("div", `bubble ${m.role === "user" ? "me" : "mira"}`, m.content);
       if (lastRole && lastRole !== m.role) b.classList.add("turn");
+      if (m.role !== "user" && lastRole !== m.role) b.classList.add("first");
       b.title = new Date(m.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
       frag.appendChild(b);
       lastRole = m.role;
@@ -169,6 +172,7 @@
       } else if (ev.type === "bubble") {
         typing = false;
         messages = applyBubble(messages, ev);
+        if (ev.expression) setExpression(ev.expression);
       } else if (ev.type === "error") {
         typing = false;
         notice = { text: ev.message, retry: true };
@@ -226,6 +230,44 @@
     }
   });
 
+  // ---------- 主题：立绘和背景（素材在本地 theme/ 文件夹里） ----------
+
+  function setExpression(name) {
+    const urls = theme.expressions;
+    const url = urls[name] || urls.calm || Object.values(urls)[0];
+    if (!url || portraitImg.getAttribute("src") === url) return;
+    portraitImg.classList.add("swapping");
+    portraitImg.onload = () => portraitImg.classList.remove("swapping");
+    portraitImg.src = url;
+  }
+
+  function pickBackground(bgs) {
+    const h = new Date().getHours();
+    const slot = h >= 6 && h < 17 ? "day" : h >= 17 && h < 19 ? "dusk" : "night";
+    return bgs[slot] || bgs.day || bgs.dusk || bgs.night || null;
+  }
+
+  async function loadTheme() {
+    try {
+      theme = await (await fetch("/api/theme")).json();
+    } catch {
+      return;  // 没有主题就保持朴素样式
+    }
+    const urls = Object.values(theme.expressions);
+    if (urls.length) {
+      urls.forEach((u) => { new Image().src = u; });  // 预加载，换表情时不闪
+      document.body.classList.add("has-portrait");
+      document.body.style.setProperty("--avatar", `url("${theme.expressions.calm || urls[0]}")`);
+      setExpression("calm");
+    }
+    const bg = pickBackground(theme.backgrounds);
+    if (bg) {
+      document.body.style.setProperty("--bg-image", `url("${bg}")`);
+      document.body.classList.add("has-bg");
+    }
+  }
+
+  loadTheme();
   setConnected(false);
   loadInitial().catch(() => {
     notice = { text: "历史记录加载失败，刷新试试", retry: false };

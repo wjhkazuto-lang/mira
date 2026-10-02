@@ -51,6 +51,8 @@
 - approach：comfort / normal / raise_issue / crisis 之一
 - messages：要发出去的消息，1 到 4 条，每条都是短短的一句或几句话
 
+{{expression_hint}}
+
 下面几个示例只是示范风格的变化，**不要照抄它们的条数和句式**。
 
 对方被领导当众批评，很难受：

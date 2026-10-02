@@ -23,6 +23,7 @@ from mira.reflector import Reflector
 from mira.retriever import Retriever
 from mira.scheduler import Scheduler
 from mira.store import Store
+from mira.theme import Theme
 from mira.writer import Writer
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
         embedder = HashEmbedder() if settings.fake else FastEmbedder()
 
     store = Store(settings.db_path)
+    theme = Theme(settings.theme_dir)
     retriever = Retriever(store, embedder)
     writer = Writer(store, embedder, retriever, llm, settings)
     reflector = Reflector(store, embedder, llm, settings)
@@ -46,8 +48,9 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
         llm=llm,
         settings=settings,
         persona=settings.persona_path.read_text(encoding="utf-8"),
-        rules=render("chat_rules", crisis_resources=settings.crisis_resources),
+        rules=render("chat_rules", crisis_resources=settings.crisis_resources, expression_hint=theme.prompt_hint()),
         on_activity=scheduler.notify_activity,
+        theme=theme,
     )
 
     @asynccontextmanager
@@ -87,6 +90,12 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
 
     app.include_router(build_router(store, retriever, embedder))
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+    # 你自己的立绘和背景（theme/ 不提交 git）；文件夹不存在时这个路径只是返回 404
+    app.mount("/theme", StaticFiles(directory=settings.theme_dir, check_dir=False), name="theme")
+
+    @app.get("/api/theme")
+    async def theme_info():
+        return {"expressions": theme.urls(), "backgrounds": theme.backgrounds()}
 
     @app.get("/")
     def index():

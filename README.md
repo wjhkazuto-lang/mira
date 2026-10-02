@@ -62,6 +62,10 @@ MIRA_FAKE=1 DB_PATH=data/dev.db uv run python -m mira
 
 - **备份**：复制 `data/mira.db` 就行（如果有 `mira.db-wal` 文件，请先停止 Mira 再复制）
 - **修改人设**：编辑项目根目录下的 `persona.md`，重启后生效。想写一份只属于自己的人设（比如让你常用的 AI 根据对你的了解来写，提示词见 [docs/persona-prompt-for-gpt.md](docs/persona-prompt-for-gpt.md)），就保存为 `persona.local.md`，它会被优先使用，而且不会被 git 提交
+- **二次元界面**：在项目根目录建一个 `theme/` 文件夹（不会被 git 提交）：
+  - `theme/mira/` 放 Mira 的立绘，每种表情一张，文件名用 `calm`（平静）、`talk`（说话）、`smile`（微笑）、`happy`（开心）、`gentle`（温柔）、`worried`（担心）、`surprised`（惊讶）、`annoyed`（不满），格式 png/webp/jpg 都行，有几张放几张。她会按每次回复的语气换表情
+  - `theme/background/` 放背景，文件名 `day` / `dusk` / `night`，按你电脑的时间切换
+  - 免费立绘可以去 [わたおきば](https://wataokiba.net/) 之类的素材站找；大多数素材**禁止二次分发**，所以只放在本地，别上传
 - **觉得她说话像机器人**：运行 `uv run python evals/style_stats.py --since 某天` 看看她回复的统计（每轮几条、多少以问句结尾），也可以在 `.env` 里调 `CHAT_TEMPERATURE`
 - **纠正记忆**：在记忆管理页（右上角"记忆"）修改或删除。你改过的记忆会被锁定，她不会再自动改动
 - **整理进度**：记忆页上方显示待处理消息数、预计整理时间、上次成功时间及失败提示。你发消息和 Mira 回复都会顺延空闲计时；后台每约 30 秒检查一次，模型处理还需要额外时间。失败后等待约 30 分钟重试。

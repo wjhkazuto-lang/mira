@@ -15,7 +15,8 @@ WS = "ws://127.0.0.1:8000/ws"
 
 @pytest.fixture
 def app(tmp_path):
-    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "DEBOUNCE_SECONDS": "0"})
+    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "DEBOUNCE_SECONDS": "0",
+                              "THEME_DIR": str(tmp_path / "no-theme")})  # 不读你真实的 theme/ 素材
     return create_app(settings)
 
 
@@ -235,3 +236,19 @@ def test_pattern_type_cannot_be_changed(client, app):
     e1, e2 = add(app, "episode", "a"), add(app, "episode", "b")
     p = add(app, "pattern", "熬夜", evidence=[e1.id, e2.id])
     assert client.patch(f"/api/memories/{p.id}", json={"type": "fact"}).status_code == 422
+
+
+def test_theme_api_and_static(tmp_path):
+    theme = tmp_path / "theme"
+    (theme / "mira").mkdir(parents=True)
+    (theme / "mira" / "calm.png").write_bytes(b"\x89PNG")
+    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(theme)})
+    with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as c:
+        data = c.get("/api/theme").json()
+        assert data["expressions"] == {"calm": "/theme/mira/calm.png"} and data["backgrounds"] == {}
+        assert c.get("/theme/mira/calm.png").content == b"\x89PNG"
+        assert c.get("/theme/../mira.db").status_code == 404
+
+
+def test_theme_api_without_theme(client):
+    assert client.get("/api/theme").json() == {"expressions": {}, "backgrounds": {}}

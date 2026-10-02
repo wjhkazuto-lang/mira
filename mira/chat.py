@@ -15,6 +15,7 @@ from mira.context import Reply, build_chat_messages, parse_reply
 from mira.llm import LLM, LLMBadJSON, LLMError
 from mira.retriever import Retriever
 from mira.store import Message, Store
+from mira.theme import Theme
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class ChatEngine:
         on_activity: Callable[[], None] = lambda: None,
         now: Callable[[], datetime] = clock.now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        theme: Theme | None = None,
     ):
         self._store = store
         self._retriever = retriever
@@ -74,6 +76,7 @@ class ChatEngine:
         self._on_activity = on_activity
         self._now = now
         self._sleep = sleep
+        self._theme = theme
         self._outboxes: list[Send] = []
         self._task: asyncio.Task | None = None
         # 收消息和重试都要先取消旧任务再开新任务，中间有 await；加锁防止两路请求交错，产生重复回复
@@ -230,15 +233,19 @@ class ChatEngine:
         await self._deliver(batch_id, reply)
 
     async def _deliver(self, batch_id: str, reply: Reply) -> None:
+        expression = self._theme.pick(reply.expression, reply.approach) if self._theme else None
         for i, text in enumerate(reply.messages):
             await self._broadcast({"type": "typing"})
             await self._sleep(bubble_delay(text))
             meta = {"mood_read": reply.mood_read, "approach": reply.approach} if i == 0 else None
+            if meta is not None and expression:
+                meta["expression"] = expression
             msg = self._store.add_message("assistant", text, batch_id=batch_id, meta=meta)
             if i == 0 and self._batch_id == batch_id:
                 self._batch_id = None  # 发出第一条，这一批就算回复了
                 self._batch_started_at = None
-            await self._broadcast(
-                {"type": "bubble", "id": msg.id, "text": text, "created_at": msg.created_at.isoformat()}
-            )
+            event = {"type": "bubble", "id": msg.id, "text": text, "created_at": msg.created_at.isoformat()}
+            if expression:
+                event["expression"] = expression
+            await self._broadcast(event)
         self._on_activity()
