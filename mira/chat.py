@@ -103,14 +103,14 @@ class ChatEngine:
 
     # ---------- 输入 ----------
 
-    async def on_user_message(self, text: str) -> Message | None:
+    async def on_user_message(self, text: str, client_id: str | None = None) -> Message | None:
         text = text.strip()
         if not text:
             return None
         async with self._lock:
-            return await self._accept_message(text)
+            return await self._accept_message(text, client_id)
 
-    async def _accept_message(self, text: str) -> Message:
+    async def _accept_message(self, text: str, client_id: str | None) -> Message:
         now = self._now()
         was_running = await self._cancel_task()
         if self._batch_id is None:
@@ -118,6 +118,11 @@ class ChatEngine:
         if self._batch_started_at is None or not was_running:
             self._batch_started_at = now
         msg = self._store.add_message("user", text, batch_id=self._batch_id)
+        # 告诉所有页面这条消息的编号：发送的页面用 client_id 认领，其他标签页直接显示
+        await self._broadcast(
+            {"type": "user_message", "id": msg.id, "text": text, "created_at": msg.created_at.isoformat(),
+             "client_id": client_id}
+        )
         self._last_input_at = now
         self._on_activity()
         self._task = asyncio.create_task(self._wait_then_respond(self._batch_id))

@@ -24,8 +24,11 @@ class Outbox:
     async def __call__(self, ev):
         self.events.append(ev)
 
+    def replies(self):
+        return [e for e in self.events if e["type"] != "user_message"]
+
     def kinds(self):
-        return [e["type"] for e in self.events]
+        return [e["type"] for e in self.replies()]
 
 
 def make(store, clock, script, attach=True, retriever=None):
@@ -64,7 +67,7 @@ async def test_waits_debounce_then_replies(mstore, mclock):
     assert llm.calls[0]["model"] == SETTINGS.chat_model
     await mclock.advance(10)
     assert box.kinds() == ["typing", "bubble", "typing", "bubble"]
-    assert [e["text"] for e in box.events if e["type"] == "bubble"] == ["嗨", "怎么啦"]
+    assert [e["text"] for e in box.replies() if e["type"] == "bubble"] == ["嗨", "怎么啦"]
     a1, a2 = assistants(mstore)
     assert a1.batch_id == a2.batch_id == user.batch_id
     assert a1.meta == {"mood_read": "还行", "approach": "comfort"} and a2.meta == {}
@@ -142,7 +145,7 @@ async def test_llm_error_then_retry(mstore, mclock):
     engine, llm, box = make(mstore, mclock, [LLMError("down"), reply("我回来了")])
     await engine.on_user_message("在吗")
     await mclock.advance(3.1)
-    assert box.events == [ERROR]
+    assert box.replies() == [ERROR]
     await engine.retry()
     await mclock.advance(5)
     assert box.kinds()[-1] == "bubble" and assistants(mstore)[0].content == "我回来了"
@@ -162,7 +165,7 @@ async def test_bad_structure_sends_error(mstore, mclock):
     await mclock.advance(10)
     await engine.retry()
     await mclock.advance(10)
-    assert box.events == [ERROR, ERROR] and assistants(mstore) == []
+    assert box.replies() == [ERROR, ERROR] and assistants(mstore) == []
 
 
 async def test_detached_still_stores_reply(mstore, mclock):
@@ -231,14 +234,14 @@ async def test_unexpected_error_sends_error_event(mstore, mclock):
     engine, llm, box = make(mstore, mclock, [], retriever=Broken())
     await engine.on_user_message("hi")
     await mclock.advance(10)
-    assert box.events == [ERROR] and llm.calls == []
+    assert box.replies() == [ERROR] and llm.calls == []
 
 
 async def test_llm_error_user_message_shown(mstore, mclock):
     engine, _, box = make(mstore, mclock, [LLMError("401", user_message="DeepSeek API key 不对")])
     await engine.on_user_message("hi")
     await mclock.advance(10)
-    assert box.events == [{"type": "error", "message": "DeepSeek API key 不对"}]
+    assert box.replies() == [{"type": "error", "message": "DeepSeek API key 不对"}]
 
 
 async def test_truncated_json_salvages_messages(mstore, mclock):
@@ -253,7 +256,7 @@ async def test_unsalvageable_json_sends_error(mstore, mclock):
     engine, _, box = make(mstore, mclock, [LLMBadJSON(raw='{"mood_read": "累", "appr')])
     await engine.on_user_message("hi")
     await mclock.advance(10)
-    assert box.events == [ERROR] and assistants(mstore) == []
+    assert box.replies() == [ERROR] and assistants(mstore) == []
 
 
 def test_salvage_stops_at_array_end():
@@ -299,3 +302,11 @@ async def test_concurrent_retry_and_message_one_reply(mstore, mclock):
     await asyncio.gather(engine.retry(), engine.on_user_message("在吗"))
     await mclock.advance(20)
     assert len(llm.calls) == 1
+
+
+async def test_user_message_echoed_with_client_id(mstore, mclock):
+    engine, _, box = make(mstore, mclock, [reply("嗯")])
+    msg = await engine.on_user_message("在吗", client_id="c1")
+    echo = [e for e in box.events if e["type"] == "user_message"]
+    assert echo == [{"type": "user_message", "id": msg.id, "text": "在吗",
+                     "created_at": msg.created_at.isoformat(), "client_id": "c1"}]

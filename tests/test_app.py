@@ -122,10 +122,10 @@ def test_ws_roundtrip(client):
     with client.websocket_connect(WS, headers={"origin": "http://127.0.0.1:8000"}) as ws:
         ws.send_json({"type": "nonsense"})
         ws.send_text("not json")
-        ws.send_json({"type": "message", "text": "你好"})
-        events = [ws.receive_json() for _ in range(4)]
-    assert [e["type"] for e in events] == ["typing", "bubble", "typing", "bubble"]
-    assert events[1]["text"] == "收到：你好"
+        ws.send_json({"type": "message", "text": "你好", "client_id": "c9"})
+        events = [ws.receive_json() for _ in range(5)]
+    assert [e["type"] for e in events] == ["user_message", "typing", "bubble", "typing", "bubble"]
+    assert events[0]["client_id"] == "c9" and events[2]["text"] == "收到：你好"
     msgs = client.get("/api/messages").json()
     assert [m["role"] for m in msgs] == ["user", "assistant", "assistant"]
 

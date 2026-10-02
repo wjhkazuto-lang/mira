@@ -110,7 +110,10 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
                     continue
                 kind = data.get("type") if isinstance(data, dict) else None
                 if kind == "message":
-                    await engine.on_user_message(str(data.get("text", "")))
+                    client_id = data.get("client_id")
+                    await engine.on_user_message(
+                        str(data.get("text", "")), client_id=client_id if isinstance(client_id, str) else None
+                    )
                 elif kind == "typing":
                     await engine.on_typing()
                 elif kind == "retry":
