@@ -1,0 +1,147 @@
+from datetime import date
+
+import pytest
+
+from mira.config import load_settings
+from mira.fakes import FakeLLM, HashEmbedder
+from mira.llm import LLMError
+from mira.retriever import Retriever
+from mira.writer import Writer
+
+EMB = HashEmbedder()
+SETTINGS = load_settings({"MIRA_FAKE": "1"})
+
+
+def make_writer(store, clock, script):
+    llm = FakeLLM(script)
+    return Writer(store, EMB, Retriever(store, EMB, now=clock.now), llm, SETTINGS, now=clock.now), llm
+
+
+def mem(store, type, content, **kw):
+    return store.add_memory(type, content, vector=EMB.embed([content])[0], actor="writer", **kw)
+
+
+def chat(store):
+    store.add_message("user", "周五我要面试，得先把简历改完")
+    store.add_message("assistant", "加油！什么岗位？")
+
+
+EPISODE = {"content": "聊了周五面试，有点紧张", "importance": 3}
+
+
+async def test_no_unprocessed_returns_none(store, clock):
+    w, llm = make_writer(store, clock, [])
+    assert await w.run() is None and llm.calls == []
+
+
+async def test_adds_commitment_and_episode(store, clock):
+    chat(store)
+    w, llm = make_writer(store, clock, [{
+        "ops": [{"op": "add", "type": "commitment", "content": "周五面试前改完简历", "due_at": "2026-10-09"}],
+        "episode": EPISODE,
+    }])
+    result = await w.run()
+    [c] = store.list_memories("commitment")
+    assert (c.status, c.due_at, c.importance) == ("open", date(2026, 10, 9), 3)
+    assert c.source_message_ids == [m.id for m in store.list_messages()]
+    [e] = store.list_memories("episode")
+    assert e.content == EPISODE["content"] and result.episode_id == e.id and result.applied == 1
+    assert store.unprocessed_messages() == []
+    assert {entry.actor for entry in store.recent_log()} == {"writer"}
+    assert llm.calls[0]["purpose"] == "writer" and llm.calls[0]["model"] == SETTINGS.background_model
+
+
+async def test_prompt_has_transcript_and_ids(store, clock):
+    old = mem(store, "fact", "在准备换工作")
+    chat(store)
+    w, llm = make_writer(store, clock, [{"ops": [], "episode": EPISODE}])
+    await w.run()
+    text = "\n".join(m["content"] for m in llm.calls[0]["messages"])
+    assert "周五我要面试" in text and "Mira：加油" in text and f"#{old.id}" in text
+    assert "2026-10-02" in text and "周五" in text
+
+
+async def test_locked_memory_update_skipped(store, clock):
+    m = mem(store, "fact", "喜欢猫", user_locked=True)
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [{"op": "update", "id": m.id, "content": "喜欢狗"}], "episode": EPISODE}])
+    result = await w.run()
+    assert store.get_memory(m.id).content == "喜欢猫" and any("锁定" in s for s in result.skipped)
+
+
+async def test_unknown_id_skipped(store, clock):
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [{"op": "update", "id": 999, "content": "x"},
+                                               {"op": "set_status", "id": 999, "status": "done"}],
+                                       "episode": EPISODE}])
+    result = await w.run()
+    assert len(result.skipped) == 2 and result.applied == 0
+
+
+async def test_cannot_add_pattern_or_episode(store, clock):
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [{"op": "add", "type": "pattern", "content": "总熬夜"},
+                                               {"op": "add", "type": "episode", "content": "x"},
+                                               {"op": "explode"}],
+                                       "episode": EPISODE}])
+    result = await w.run()
+    assert store.list_memories("pattern") == [] and len(store.list_memories("episode")) == 1
+    assert len(result.skipped) == 3
+
+
+async def test_supersede_links_old_to_new(store, clock):
+    old = mem(store, "fact", "在 A 公司上班")
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [{"op": "supersede", "id": old.id,
+                                                "new": {"type": "fact", "content": "在 B 公司上班"}}],
+                                       "episode": EPISODE}])
+    await w.run()
+    [new] = store.list_memories("fact", include_superseded=False)
+    assert new.content == "在 B 公司上班" and store.get_memory(old.id).superseded_by == new.id
+
+
+async def test_set_status_done_even_if_locked(store, clock):
+    c = mem(store, "commitment", "改简历", status="open", user_locked=True)
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [{"op": "set_status", "id": c.id, "status": "done"},
+                                               {"op": "set_status", "id": c.id, "status": "overdue"}],
+                                       "episode": EPISODE}])
+    result = await w.run()
+    assert store.get_memory(c.id).status == "done" and len(result.skipped) == 1
+
+
+async def test_dirty_fields_normalized(store, clock):
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [
+        {"op": "add", "type": "fact", "content": "很重要", "importance": 9},
+        {"op": "add", "type": "fact", "content": "不重要", "importance": 0},
+        {"op": "add", "type": "commitment", "content": "下周五交", "due_at": "下周五"},
+        {"op": "add", "type": "fact", "content": "   "},
+        {"op": "add", "type": "fact", "content": "乱填", "importance": "很高"},
+    ], "episode": {"content": "  "}}])
+    result = await w.run()
+    by = {m.content: m for m in store.list_memories()}
+    assert by["很重要"].importance == 5 and by["不重要"].importance == 1 and by["乱填"].importance == 3
+    assert by["下周五交"].due_at is None
+    assert result.episode_id is None and len(result.skipped) == 2  # 空 content 的 add + 空 episode
+    assert store.unprocessed_messages() == []
+
+
+async def test_llm_error_leaves_unprocessed(store, clock):
+    chat(store)
+    w, _ = make_writer(store, clock, [LLMError("down")])
+    with pytest.raises(LLMError):
+        await w.run()
+    assert len(store.unprocessed_messages()) == 2 and store.list_memories() == []
+
+
+async def test_string_ids_accepted(store, clock):
+    a = mem(store, "fact", "喜欢猫")
+    c = mem(store, "commitment", "改简历", status="open")
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [{"op": "update", "id": f"#{a.id}", "importance": 5},
+                                               {"op": "set_status", "id": str(c.id), "status": "done"}],
+                                       "episode": EPISODE}])
+    result = await w.run()
+    assert result.skipped == [] and store.get_memory(a.id).importance == 5
+    assert store.get_memory(c.id).status == "done"
