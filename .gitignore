@@ -4,6 +4,15 @@ data/
 persona.local.md
 # 你自己的二次元素材（立绘、背景），大多不允许二次分发
 theme/
+# 素材类文件就算放错位置也不提交
+*.zip
+*.mp4
+*.webm
+*.mov
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
 
 # Python
 __pycache__/
