@@ -184,3 +184,13 @@ async def test_braces_in_chat_do_not_block_writer(store, clock):
     w, llm = make_writer(store, clock, [{"ops": [], "episode": EPISODE}])
     await w.run()
     assert store.unprocessed_messages() == [] and "{{name}}" in llm.calls[0]["messages"][0]["content"]
+
+
+async def test_update_adds_new_sources(store, clock):
+    old_msg = store.add_message("user", "我养了一只猫")
+    store.mark_processed([old_msg.id])
+    m = mem(store, "fact", "养一只猫", source_message_ids=[old_msg.id])
+    new_msg = store.add_message("user", "又领养了一只，现在两只猫了")
+    w, _ = make_writer(store, clock, [{"ops": [{"op": "update", "id": m.id, "content": "养两只猫"}], "episode": EPISODE}])
+    await w.run()
+    assert store.get_memory(m.id).source_message_ids == [old_msg.id, new_msg.id]

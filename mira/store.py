@@ -78,7 +78,9 @@ class LogEntry:
     created_at: datetime
 
 
-_UPDATABLE = {"content", "subject", "importance", "status", "due_at", "evidence", "user_locked", "superseded_by"}
+_UPDATABLE = {
+    "content", "subject", "importance", "status", "due_at", "evidence", "source_message_ids", "user_locked", "superseded_by",
+}
 
 
 def _opt_dt(v: str | None) -> datetime | None:
@@ -304,6 +306,8 @@ class Store:
                 cols["due_at"] = cols["due_at"].isoformat() if cols["due_at"] else None
             if "evidence" in cols:
                 cols["evidence_json"] = json.dumps(cols.pop("evidence"))
+            if "source_message_ids" in cols:
+                cols["source_message_ids_json"] = json.dumps(cols.pop("source_message_ids"))
             if "user_locked" in cols:
                 cols["user_locked"] = int(cols["user_locked"])
             cols["updated_at"] = self._ts()

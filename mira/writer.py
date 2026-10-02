@@ -216,7 +216,9 @@ class Writer:
                         self._store.update_memory(op["id"], actor="writer", superseded_by=new.id)
                 elif op["op"] == "update":
                     vec = next(vectors) if "content" in f else None
-                    self._store.update_memory(op["id"], actor="writer", vector=vec, **f)
+                    old = self._store.get_memory(op["id"])
+                    sources = list(dict.fromkeys(old.source_message_ids + source_ids))
+                    self._store.update_memory(op["id"], actor="writer", vector=vec, source_message_ids=sources, **f)
                 else:
                     self._store.update_memory(op["id"], actor="writer", status=op["status"])
             if episode_text:
