@@ -34,6 +34,7 @@ Mira 是一个只给用户本人使用的 AI 朋友，有长期记忆。
 - v1 就记录"承诺/待跟进事项"，支撑 R4，也为以后的主动消息做准备
 - 危机信号要特殊处理
 - 人设放在可以编辑的 `persona.md` 文件里
+- 项目开源（MIT 协议）：仓库里不放任何个人数据；提供假模型开发模式，没有 API key 也能试用界面；危机热线可以配置
 
 ### 1.3 v1 不做
 
@@ -81,6 +82,7 @@ Mira 是一个只给用户本人使用的 AI 朋友，有长期记忆。
 | `reflector` | 回顾近期内容，更新模式、承诺状态和核心档案 | llm、store |
 | `chat` | 对话编排：等待用户说完 → 检索 → 组装提示词 → 调模型 → 分条发送 → 处理被打断 | 以上所有 |
 | `scheduler` | 后台任务：空闲 10 分钟触发 writer；每天 04:00 触发 reflector；启动时补跑遗漏的任务 | writer、reflector |
+| `fakes` | 假的 LLM 和 embedder：给测试用，也给开发模式（`MIRA_FAKE=1`）用 | 无 |
 | `web` | 静态文件：`index.html`（聊天）、`memory.html`（记忆管理） | 后端 API |
 
 > 注：`fastembed` 和 `bge-small-zh-v1.5` 是否适合，需要在实施计划的第一步实际验证（安装大小、中文效果、Apple Silicon 兼容性）。如果不合适，退回 `sentence-transformers`。
@@ -110,8 +112,7 @@ Mira 是一个只给用户本人使用的 AI 朋友，有长期记忆。
    1. system：`persona.md` + 行为规则（§4.1）
    2. system：当前核心档案
    3. 最近的聊天记录（按 token 截取，约 `RECENT_HISTORY_TOKENS`）
-   4. system：本轮检索到的记忆 + 进行中的承诺 + 当前时间 + 距上次聊天多久
-   5. user：本批新消息
+   4. + 5. 合并成**最后一条 user 消息**：开头用【背景】标签放本轮检索到的记忆 + 进行中的承诺 + 当前时间 + 距上次聊天多久，后面用【新消息】标签放本批新消息。（不用对话中途的 system 消息，因为无法确认 DeepSeek 是否支持。历史记录里存的是原始消息，不包含【背景】，所以不影响前缀缓存。）
 5. **调用 `CHAT_MODEL`**，使用 JSON 输出模式：
    ```json
    {"mood_read": "string", "approach": "comfort|normal|raise_issue|crisis", "messages": ["string", "..."]}
@@ -142,7 +143,6 @@ memories(id, type, content, subject, importance, status, due_at,
          evidence_json, source_message_ids_json, user_locked,
          superseded_by, created_at, updated_at, last_recalled_at)
 memory_vectors(memory_id, vector BLOB)            -- 512 维 float32
-memories_fts  -- FTS5，trigram 分词器（适用于中文），索引 memories.content
 core_profile(id, content, created_at, source)     -- source: reflector | user
 memory_log(id, memory_id, actor, op, before_json, after_json, created_at)  -- actor: writer | reflector | user
 job_state(name, last_run_at)                      -- 用于判断启动时是否需要补跑
@@ -165,11 +165,13 @@ job_state(name, last_run_at)                      -- 用于判断启动时是否
 候选范围：所有 `superseded_by IS NULL` 的记忆。其中 episode 有额外限制：最近 90 天内的全部参与打分；90 天以前的，只有语义相似度排进前 20 的才参与打分（避免大量旧的事件摘要稀释检索结果）。
 
 ```
-score = 0.6 × cosine(查询, 记忆) + 0.25 × FTS 匹配（归一化） + 0.15 × (0.5 × importance/5 + 0.5 × 新近度)
+score = 0.6 × cosine(查询, 记忆) + 0.25 × 关键词匹配 + 0.15 × (0.5 × importance/5 + 0.5 × 新近度)
 新近度 = exp(-距今天数 / 30)
 ```
 
-所有向量在启动时加载到内存，用 numpy 直接全部计算。被选中的记忆更新 `last_recalled_at`。
+关键词匹配 = 查询与记忆的**字符二元组**重合数 ÷ 记忆自身的二元组数（上限为 1）。不用 SQLite FTS5 trigram，因为它匹配不到"面试""简历"这类两个字的中文词。
+
+每次检索都从数据库读出全部向量，用 numpy 直接全部计算（几千条只需几毫秒，也不用担心缓存和数据库不一致）。被选中的记忆更新 `last_recalled_at`。
 
 ### 5.4 写入器
 
@@ -264,7 +266,8 @@ WS     /ws                           # 收：message / typing；发：typing / b
 
 ```
 Mira/
-├── README.md              # 中文的安装、启动、备份说明
+├── README.md              # 中文为主的安装、启动、备份说明 + 免责声明
+├── LICENSE                # MIT
 ├── pyproject.toml
 ├── .env.example
 ├── persona.md
