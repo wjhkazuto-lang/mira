@@ -66,3 +66,11 @@ def test_recency_breaks_tie(store, clock):
 
 def test_empty_store(store, clock):
     assert retriever(store, clock).search("任何东西", 5) == []
+
+
+def test_mismatched_vector_dims_ignored(store, clock):
+    import numpy as np
+
+    store.add_memory("fact", "喜欢猫", vector=np.ones(4, dtype=np.float32), actor="writer")
+    results = retriever(store, clock).search("喜欢猫", 5)
+    assert len(results) == 1  # 不报错；语义分按 0 算，关键词仍能命中

@@ -38,3 +38,13 @@ def test_fast_embedder_chinese_semantics():
     assert v.shape == (3, 512) and e.dim == 512
     assert np.allclose(np.linalg.norm(v, axis=1), 1.0, atol=1e-3)
     assert v[0] @ v[1] > v[0] @ v[2]
+
+
+def test_model_cache_under_project_root():
+    import inspect
+
+    from mira.config import PROJECT_ROOT
+    from mira.embedder import FastEmbedder
+
+    default = inspect.signature(FastEmbedder).parameters["cache_dir"].default
+    assert default == PROJECT_ROOT / ".cache" / "fastembed"

@@ -1,6 +1,8 @@
 import pytest
 
-from mira.config import ConfigError, load_settings
+from pathlib import Path
+
+from mira.config import PROJECT_ROOT, ConfigError, load_settings
 
 
 def test_defaults_match_spec():
@@ -34,4 +36,21 @@ def test_fake_mode_needs_no_key():
 
 def test_float_settings_accept_decimals():
     s = load_settings({"DEEPSEEK_API_KEY": "k", "DEBOUNCE_SECONDS": "2.5", "DB_PATH": "x/y.db"})
-    assert s.debounce_seconds == 2.5 and str(s.db_path) == "x/y.db"
+    assert s.debounce_seconds == 2.5 and s.db_path == PROJECT_ROOT / "x" / "y.db"
+
+
+def test_paths_resolved_against_project_root():
+    s = load_settings({"DEEPSEEK_API_KEY": "k"})
+    assert s.db_path == PROJECT_ROOT / "data" / "mira.db"
+    assert s.persona_path == PROJECT_ROOT / "persona.md" and s.persona_path.exists()
+    assert load_settings({"DEEPSEEK_API_KEY": "k", "DB_PATH": "/tmp/x.db"}).db_path == Path("/tmp/x.db")
+
+
+def test_fake_mode_defaults_to_separate_db():
+    assert load_settings({"MIRA_FAKE": "1"}).db_path == PROJECT_ROOT / "data" / "dev.db"
+    assert load_settings({"MIRA_FAKE": "1", "DB_PATH": "data/a.db"}).db_path == PROJECT_ROOT / "data" / "a.db"
+
+
+def test_reflect_hour_validated():
+    with pytest.raises(ConfigError):
+        load_settings({"DEEPSEEK_API_KEY": "k", "REFLECT_HOUR": "24"})

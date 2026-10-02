@@ -1,9 +1,16 @@
+import inspect
+
 import numpy as np
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from mira.config import load_settings
 from mira.main import create_app
+
+# TestClient 的 websocket_connect 会忽略 base_url，必须写完整地址
+WS = "ws://127.0.0.1:8000/ws"
 
 
 @pytest.fixture
@@ -14,7 +21,7 @@ def app(tmp_path):
 
 @pytest.fixture
 def client(app):
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1:8000") as c:
         yield c
 
 
@@ -112,7 +119,7 @@ def test_memory_log_endpoint(client, app):
 
 
 def test_ws_roundtrip(client):
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect(WS, headers={"origin": "http://127.0.0.1:8000"}) as ws:
         ws.send_json({"type": "nonsense"})
         ws.send_text("not json")
         ws.send_json({"type": "message", "text": "你好"})
@@ -121,3 +128,30 @@ def test_ws_roundtrip(client):
     assert events[1]["text"] == "收到：你好"
     msgs = client.get("/api/messages").json()
     assert [m["role"] for m in msgs] == ["user", "assistant", "assistant"]
+
+
+def test_api_routes_are_async(app):
+    # 同步路由会在线程池里跑，和事件循环共用一个 sqlite 连接会导致事务交错
+    from mira.api import build_router
+    from mira.retriever import Retriever
+
+    router = build_router(app.state.store, Retriever(app.state.store, app.state.embedder), app.state.embedder)
+    routes = [r for r in router.routes if isinstance(r, APIRoute)]
+    assert routes and all(inspect.iscoroutinefunction(r.endpoint) for r in routes)
+
+
+def test_foreign_host_rejected(client):
+    assert client.get("/api/messages", headers={"host": "evil.example"}).status_code == 400
+
+
+def test_ws_foreign_origin_rejected(client):
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(WS, headers={"origin": "https://evil.example"}) as ws:
+            ws.receive_json()
+
+
+def test_cross_site_mutation_rejected(client):
+    first = client.put("/api/profile", json={"content": "第一版"}).json()
+    r = client.post(f"/api/profile/rollback/{first['id']}", headers={"origin": "https://evil.example"})
+    assert r.status_code == 403
+    assert client.post(f"/api/profile/rollback/{first['id']}", headers={"origin": "http://localhost:8000"}).status_code == 200

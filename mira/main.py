@@ -8,7 +8,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from mira.api import build_router
@@ -62,6 +63,19 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
             await task
 
     app = FastAPI(title="Mira", lifespan=lifespan)
+
+    # 只允许本机页面访问：挡住 DNS 重绑定（Host）和其他网站的跨站请求（Origin）
+    hosts = sorted({"127.0.0.1", "localhost", settings.host})
+    origins = {f"http://{h}:{settings.port}" for h in hosts}
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
+
+    @app.middleware("http")
+    async def same_origin_only(request, call_next):
+        origin = request.headers.get("origin")
+        if request.method not in ("GET", "HEAD", "OPTIONS") and origin and origin not in origins:
+            return JSONResponse({"detail": "拒绝来自其他网站的请求"}, status_code=403)
+        return await call_next(request)
+
     app.state.store = store
     app.state.embedder = embedder
     app.state.engine = engine
@@ -78,6 +92,10 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
+        origin = websocket.headers.get("origin")
+        if origin and origin not in origins:
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
 
         async def send(event: dict) -> None:

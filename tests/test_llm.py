@@ -99,3 +99,48 @@ async def test_echo_llm_by_purpose():
     assert chat["approach"] == "normal" and chat["messages"][0] == "收到：今天好累啊"
     assert (await echo.complete_json(purpose="writer", model="m", messages=msgs))["ops"] == []
     assert (await echo.complete_json(purpose="reflector", model="m", messages=msgs))["patterns"] == []
+
+
+def status_error(cls, code):
+    resp = httpx.Response(code, request=httpx.Request("POST", "https://x"))
+    return cls(f"HTTP {code}", response=resp, body=None)
+
+
+async def test_auth_error_not_retried_and_explained():
+    llm, client, sleeps = make([status_error(openai.AuthenticationError, 401)])
+    with pytest.raises(LLMError) as e:
+        await call(llm)
+    assert len(client.kwargs) == 1 and sleeps == [] and "API key" in e.value.user_message
+
+
+async def test_no_balance_explained():
+    llm, _, _ = make([status_error(openai.APIStatusError, 402)])
+    with pytest.raises(LLMError) as e:
+        await call(llm)
+    assert "余额" in e.value.user_message
+
+
+async def test_bad_request_not_retried():
+    llm, client, _ = make([status_error(openai.BadRequestError, 400)])
+    with pytest.raises(LLMError):
+        await call(llm)
+    assert len(client.kwargs) == 1
+
+
+async def test_rate_limit_retried():
+    llm, client, sleeps = make([status_error(openai.RateLimitError, 429), '{"ok": 1}'])
+    assert await call(llm) == {"ok": 1} and sleeps == [1]
+
+
+async def test_empty_choices_is_bad_json():
+    llm, client, _ = make([])
+    async def empty(**kw):
+        client.kwargs.append(kw)
+        return SimpleNamespace(choices=[], usage=None)
+    client.chat.completions.create = empty
+    with pytest.raises(LLMBadJSON):
+        await call(llm)
+
+
+def test_default_client_timeout():
+    assert DeepSeekLLM("k", "https://x")._client.timeout == 60

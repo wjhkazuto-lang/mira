@@ -6,6 +6,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
 class ConfigError(Exception):
     pass
 
@@ -57,7 +60,14 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         except ValueError as e:
             raise ConfigError(f"配置项 {f.name.upper()} 的值无效：{raw!r}") from e
 
+    if values.get("fake") and "db_path" not in values:
+        values["db_path"] = Path("data/dev.db")  # 开发模式默认用单独的数据库，免得假数据混进真记忆
+    for key in ("db_path", "persona_path"):
+        path = values.get(key, getattr(Settings, key))
+        values[key] = path if path.is_absolute() else PROJECT_ROOT / path
     settings = Settings(**values)
+    if not 0 <= settings.reflect_hour <= 23:
+        raise ConfigError(f"REFLECT_HOUR 必须是 0 到 23：{settings.reflect_hour}")
     if not settings.fake and not settings.deepseek_api_key:
         raise ConfigError(_MISSING_KEY_HINT)
     return settings

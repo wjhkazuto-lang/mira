@@ -3,6 +3,8 @@ from typing import Protocol
 
 import numpy as np
 
+from mira.config import PROJECT_ROOT
+
 
 class Embedder(Protocol):
     dim: int
@@ -25,7 +27,7 @@ def normalize(v: np.ndarray) -> np.ndarray:
 class FastEmbedder:
     dim = 512
 
-    def __init__(self, model_name: str = "BAAI/bge-small-zh-v1.5", cache_dir: Path = Path(".cache/fastembed")):
+    def __init__(self, model_name: str = "BAAI/bge-small-zh-v1.5", cache_dir: Path = PROJECT_ROOT / ".cache" / "fastembed"):
         try:
             from fastembed import TextEmbedding
 

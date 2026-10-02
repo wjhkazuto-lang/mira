@@ -2,7 +2,9 @@
 
 import asyncio
 import contextlib
+import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -19,6 +21,30 @@ log = logging.getLogger(__name__)
 Send = Callable[[dict], Awaitable[None]]
 ERROR_EVENT = {"type": "error", "message": "Mira 暂时没连上，点重试再试一次"}
 HISTORY_TAIL_FOR_QUERY = 6
+
+
+_JSON_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def salvage_messages(raw: str) -> list[str]:
+    """从被截断的 JSON 里捞出 messages 数组中已经完整的字符串。"""
+    start = re.search(r'"messages"\s*:\s*\[', raw)
+    if not start:
+        return []
+    out: list[str] = []
+    pos = start.end()
+    while True:
+        m = _JSON_STRING.search(raw, pos)
+        # 两个字符串之间只能是空白和逗号；遇到 ] 或别的东西说明数组结束了
+        if not m or raw[pos:m.start()].strip() not in ("", ","):
+            return out
+        try:
+            text = json.loads(f'"{m.group(1)}"').strip()
+        except json.JSONDecodeError:
+            return out
+        if text:
+            out.append(text)
+        pos = m.end()
 
 
 def bubble_delay(text: str) -> float:
@@ -133,6 +159,15 @@ class ChatEngine:
         await self._respond(batch_id)
 
     async def _respond(self, batch_id: str) -> None:
+        try:
+            await self._respond_inner(batch_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("回复时出错")
+            await self._broadcast(ERROR_EVENT)
+
+    async def _respond_inner(self, batch_id: str) -> None:
         new = self._store.messages_in_batch(batch_id)
         history = self._store.recent_messages(self._settings.recent_history_tokens, exclude_batch=batch_id)
         query = "\n".join(m.content for m in history[-HISTORY_TAIL_FOR_QUERY:] + new)
@@ -157,10 +192,15 @@ class ChatEngine:
             reply = parse_reply(data)
         except LLMBadJSON as e:
             raw = e.raw.strip()
-            reply = Reply("", "unknown", [raw]) if raw else None
-        except LLMError:
+            if raw.startswith("{"):
+                salvaged = salvage_messages(raw)  # 多半是输出被截断了
+                reply = Reply("", "unknown", salvaged) if salvaged else None
+            else:
+                reply = Reply("", "unknown", [raw]) if raw else None
+        except LLMError as e:
             log.exception("聊天调用失败")
-            reply = None
+            await self._broadcast({"type": "error", "message": e.user_message})
+            return
         if reply is None:
             await self._broadcast(ERROR_EVENT)
             return

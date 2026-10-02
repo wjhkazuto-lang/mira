@@ -46,7 +46,11 @@ class Retriever:
         vectors = self._store.load_vectors(m.id for m in memories)
         q = self._embedder.embed([query])[0]
         now = self._now()
-        cos = {m.id: float(vectors[m.id] @ q) if m.id in vectors else 0.0 for m in memories}
+        # 维度不一致的向量（比如开发模式留下的）按 0 处理，不让一条坏数据拖垮检索
+        cos = {
+            m.id: float(vectors[m.id] @ q) if m.id in vectors and vectors[m.id].shape == q.shape else 0.0
+            for m in memories
+        }
 
         def age_days(m: Memory) -> float:
             return max((now - m.updated_at).total_seconds() / 86400, 0.0)

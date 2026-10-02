@@ -54,18 +54,18 @@ def build_router(store: Store, retriever: Retriever, embedder: Embedder) -> APIR
         return m
 
     @router.get("/messages")
-    def list_messages(before: int | None = None, limit: int = 50):
+    async def list_messages(before: int | None = None, limit: int = 50):
         return [message_dict(m) for m in store.list_messages(before_id=before, limit=min(limit, 200))]
 
     @router.get("/memories")
-    def list_memories(type: str | None = None, q: str | None = None):
+    async def list_memories(type: str | None = None, q: str | None = None):
         if q:
             types = {type} if type else None
             return [memory_dict(s.memory) | {"score": round(s.score, 3)} for s in retriever.search(q, 50, types)]
         return [memory_dict(m) for m in store.list_memories(type)]
 
     @router.get("/memories/{id}")
-    def memory_detail(id: int):
+    async def memory_detail(id: int):
         m = get_or_404(id)
         out = memory_dict(m)
         out["source_messages"] = [message_dict(msg) for msg in store.get_messages(m.source_message_ids)]
@@ -77,7 +77,7 @@ def build_router(store: Store, retriever: Retriever, embedder: Embedder) -> APIR
         return out
 
     @router.patch("/memories/{id}")
-    def patch_memory(id: int, body: MemoryPatch):
+    async def patch_memory(id: int, body: MemoryPatch):
         m = get_or_404(id)
         given = body.model_fields_set
         if not given:
@@ -104,13 +104,13 @@ def build_router(store: Store, retriever: Retriever, embedder: Embedder) -> APIR
         return memory_dict(store.update_memory(id, actor="user", vector=vector, **fields))
 
     @router.delete("/memories/{id}")
-    def delete_memory(id: int):
+    async def delete_memory(id: int):
         get_or_404(id)
         store.delete_memory(id, actor="user")
         return {"ok": True}
 
     @router.get("/profile")
-    def get_profile():
+    async def get_profile():
         current = store.current_profile()
         return {
             "current": profile_dict(current) if current else None,
@@ -118,20 +118,20 @@ def build_router(store: Store, retriever: Retriever, embedder: Embedder) -> APIR
         }
 
     @router.put("/profile")
-    def put_profile(body: ProfileBody):
+    async def put_profile(body: ProfileBody):
         if not body.content.strip():
             raise HTTPException(422, "核心档案不能为空")
         return profile_dict(store.add_profile(body.content.strip(), "user"))
 
     @router.post("/profile/rollback/{id}")
-    def rollback_profile(id: int):
+    async def rollback_profile(id: int):
         old = store.get_profile(id)
         if old is None:
             raise HTTPException(404, "这个版本不存在")
         return profile_dict(store.add_profile(old.content, "user"))
 
     @router.get("/memory-log")
-    def memory_log(limit: int = 20):
+    async def memory_log(limit: int = 20):
         return [_jsonable(asdict(e)) for e in store.recent_log(limit=min(limit, 200))]
 
     return router

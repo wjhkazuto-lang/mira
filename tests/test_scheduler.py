@@ -1,5 +1,8 @@
+import asyncio
 import logging
 from datetime import datetime
+
+import pytest
 
 from mira.config import load_settings
 from mira.scheduler import Scheduler
@@ -112,3 +115,22 @@ async def test_failed_job_backs_off_30_minutes(store, clock):
     clock.advance(30 * 60)
     await s.tick()
     assert (w.runs, r.runs) == (2, 2)
+
+
+async def test_run_forever_survives_tick_error(store, clock):
+    calls = []
+
+    async def sleep(_):
+        if len(calls) >= 2:
+            raise asyncio.CancelledError
+
+    s = Scheduler(store=store, writer=Job(), reflector=Job(), settings=SETTINGS, now=clock.now, sleep=sleep)
+
+    async def bad_tick():
+        calls.append(1)
+        raise RuntimeError("boom")
+
+    s.tick = bad_tick
+    with pytest.raises(asyncio.CancelledError):
+        await s.run_forever()
+    assert len(calls) == 2

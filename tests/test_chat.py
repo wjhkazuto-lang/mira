@@ -28,10 +28,10 @@ class Outbox:
         return [e["type"] for e in self.events]
 
 
-def make(store, clock, script, attach=True):
+def make(store, clock, script, attach=True, retriever=None):
     llm = FakeLLM(script)
     box = Outbox()
-    engine = ChatEngine(store=store, retriever=Retriever(store, EMB, now=clock.now), llm=llm, settings=SETTINGS,
+    engine = ChatEngine(store=store, retriever=retriever or Retriever(store, EMB, now=clock.now), llm=llm, settings=SETTINGS,
                         persona="我是 Mira", rules="规则", on_activity=lambda: box.activity.append(clock.now()),
                         now=clock.now, sleep=clock.sleep)
     if attach:
@@ -221,3 +221,43 @@ async def test_on_activity_called(mstore, mclock):
     assert len(box.activity) == 1
     await mclock.advance(10)
     assert len(box.activity) == 2  # 用户发消息时一次，回复发完后一次
+
+
+async def test_unexpected_error_sends_error_event(mstore, mclock):
+    class Broken:
+        def search(self, *a, **kw):
+            raise RuntimeError("boom")
+
+    engine, llm, box = make(mstore, mclock, [], retriever=Broken())
+    await engine.on_user_message("hi")
+    await mclock.advance(10)
+    assert box.events == [ERROR] and llm.calls == []
+
+
+async def test_llm_error_user_message_shown(mstore, mclock):
+    engine, _, box = make(mstore, mclock, [LLMError("401", user_message="DeepSeek API key 不对")])
+    await engine.on_user_message("hi")
+    await mclock.advance(10)
+    assert box.events == [{"type": "error", "message": "DeepSeek API key 不对"}]
+
+
+async def test_truncated_json_salvages_messages(mstore, mclock):
+    raw = '{"mood_read": "累", "approach": "comfort", "messages": ["抱抱", "今天辛\\n苦了", "我在这'
+    engine, _, box = make(mstore, mclock, [LLMBadJSON(raw=raw)])
+    await engine.on_user_message("hi")
+    await mclock.advance(20)
+    assert [m.content for m in assistants(mstore)] == ["抱抱", "今天辛\n苦了"]
+
+
+async def test_unsalvageable_json_sends_error(mstore, mclock):
+    engine, _, box = make(mstore, mclock, [LLMBadJSON(raw='{"mood_read": "累", "appr')])
+    await engine.on_user_message("hi")
+    await mclock.advance(10)
+    assert box.events == [ERROR] and assistants(mstore) == []
+
+
+def test_salvage_stops_at_array_end():
+    from mira.chat import salvage_messages
+
+    assert salvage_messages('{"messages": ["a", "b"], "mood_read": "x", "approach": "y') == ["a", "b"]
+    assert salvage_messages('{"mood_read": "x"') == []

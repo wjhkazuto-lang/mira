@@ -57,7 +57,10 @@ class Scheduler:
 
     async def run_forever(self, interval: float = 30) -> None:
         while True:
-            await self.tick()
+            try:
+                await self.tick()
+            except Exception:
+                log.exception("后台任务检查出错，%s 秒后继续", interval)
             await self._sleep(interval)
 
     async def _run_writer(self) -> None:
