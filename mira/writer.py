@@ -14,7 +14,8 @@ from mira.retriever import Retriever
 from mira.store import Message, Store
 from mira.textutil import clip_text
 
-WRITER_TYPES = ("fact", "person", "commitment")
+WRITER_TYPES = ("fact", "person", "idea", "goal", "commitment")
+TRACKED_TYPES = ("goal", "commitment")  # 有状态（进行中/完成/放弃）的类型
 WRITER_STATUSES = ("open", "done", "dropped")
 WRITER_CHUNK_CHARS = 12000  # 每次最多处理这么多字的对话，剩下的下次再处理
 WRITER_MESSAGE_CHARS = 2000  # 单条消息最多保留这么多字
@@ -62,8 +63,8 @@ def _new_fields(raw) -> tuple[dict | None, str | None]:
         "content": content,
         "subject": _content(raw.get("subject")) or None,
         "importance": _importance(raw.get("importance", 3)),
-        "due_at": _due(raw.get("due_at")),
-        "status": "open" if raw["type"] == "commitment" else None,
+        "due_at": _due(raw.get("due_at")) if raw["type"] == "commitment" else None,  # 只有承诺有截止日期
+        "status": "open" if raw["type"] in TRACKED_TYPES else None,
     }
     return fields, None
 
@@ -135,10 +136,10 @@ def validate_ops(ops: object, store: Store) -> tuple[list[dict], list[str]]:
         elif kind == "set_status":
             pid = parse_id(op.get("id"))
             m = store.get_memory(pid) if pid is not None else None
-            if m is None or m.type != "commitment":
-                skipped.append(f"#{op.get('id')} 不是存在的承诺")
+            if m is None or m.type not in TRACKED_TYPES:
+                skipped.append(f"#{op.get('id')} 不是存在的目标或承诺")
             elif op.get("status") not in WRITER_STATUSES:
-                skipped.append(f"承诺状态 {op.get('status')!r} 不合法")
+                skipped.append(f"状态 {op.get('status')!r} 不合法")
             else:
                 valid.append({"op": "set_status", "id": m.id, "status": op["status"]})
         else:
@@ -176,7 +177,7 @@ class Writer:
         transcript = "\n".join(_line(m) for m in msgs)
         related = [s.memory for s in self._retriever.search(transcript, 15, WRITER_TYPES)]
         seen = {m.id for m in related}
-        related += [c for c in self._store.open_commitments() if c.id not in seen]
+        related += [m for m in self._store.open_goals() + self._store.open_commitments() if m.id not in seen]
         now = self._now()
         prompt = render(
             "writer",

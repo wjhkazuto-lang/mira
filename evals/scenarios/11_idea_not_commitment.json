@@ -1,0 +1,5 @@
+{"name": "随口的想法不记成承诺", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "最近有点想学吉他，不过也就想想"},
+              {"role": "assistant", "content": "哈哈想想也挺好"}],
+ "run": ["writer"],
+ "expect": [{"type": "idea", "contains": "吉他"}, {"type": "commitment", "max_count": 0}, {"type": "goal", "max_count": 0}]}

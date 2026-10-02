@@ -9,7 +9,7 @@ V = np.zeros(4, dtype=np.float32)
 
 def test_all_scenarios_parse():
     scenarios = load_scenarios()
-    assert len(scenarios) == 10
+    assert len(scenarios) == 15
     for s in scenarios:
         assert {"name", "now", "messages", "run", "expect"} <= set(s)
         assert set(s["run"]) <= {"writer", "reflector"} and s["expect"]

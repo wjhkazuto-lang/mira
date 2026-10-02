@@ -144,3 +144,10 @@ async def test_empty_choices_is_bad_json():
 
 def test_default_client_timeout():
     assert DeepSeekLLM("k", "https://x")._client.timeout == 60
+
+
+async def test_temperature_passed_only_when_given():
+    llm, client, _ = make(['{"a": 1}', '{"a": 1}'])
+    await llm.complete_json(purpose="chat", model="m", messages=MSGS, temperature=1.3)
+    await llm.complete_json(purpose="writer", model="m", messages=MSGS)
+    assert client.kwargs[0]["temperature"] == 1.3 and "temperature" not in client.kwargs[1]

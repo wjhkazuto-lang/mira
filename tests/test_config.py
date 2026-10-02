@@ -54,3 +54,19 @@ def test_fake_mode_defaults_to_separate_db():
 def test_reflect_hour_validated():
     with pytest.raises(ConfigError):
         load_settings({"DEEPSEEK_API_KEY": "k", "REFLECT_HOUR": "24"})
+
+
+def test_chat_temperature_default_and_override():
+    assert load_settings({"DEEPSEEK_API_KEY": "k"}).chat_temperature == 1.3
+    assert load_settings({"DEEPSEEK_API_KEY": "k", "CHAT_TEMPERATURE": "1.0"}).chat_temperature == 1.0
+
+
+def test_local_persona_preferred_when_present(tmp_path, monkeypatch):
+    import mira.config as config
+
+    monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+    (tmp_path / "persona.md").write_text("公开版")
+    assert config.load_settings({"MIRA_FAKE": "1"}).persona_path == tmp_path / "persona.md"
+    (tmp_path / "persona.local.md").write_text("我的版本")
+    assert config.load_settings({"MIRA_FAKE": "1"}).persona_path == tmp_path / "persona.local.md"
+    assert config.load_settings({"MIRA_FAKE": "1", "PERSONA_PATH": "x.md"}).persona_path == tmp_path / "x.md"

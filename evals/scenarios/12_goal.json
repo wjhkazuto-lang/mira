@@ -1,0 +1,6 @@
+{"name": "长期在做的事记成目标", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "我最近在准备考研，每天晚上看两三个小时书"},
+              {"role": "assistant", "content": "可以啊，考哪个学校？"},
+              {"role": "user", "content": "还在纠结，先把基础打好"}],
+ "run": ["writer"],
+ "expect": [{"type": "goal", "contains": "考研"}, {"type": "commitment", "max_count": 0}]}

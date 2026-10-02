@@ -33,7 +33,12 @@ def profile_dict(p: Profile) -> dict:
     return _jsonable(asdict(p))
 
 
+CONVERTIBLE_TYPES = ("fact", "idea", "goal", "commitment")  # 你可以在这几种之间互相纠正
+TRACKED_STATUSES = {"goal": ("open", "done", "dropped"), "commitment": COMMITMENT_STATUSES}
+
+
 class MemoryPatch(BaseModel):
+    type: str | None = None
     content: str | None = None
     status: str | None = None
     importance: int | None = None
@@ -83,13 +88,25 @@ def build_router(store: Store, retriever: Retriever, embedder: Embedder) -> APIR
         if not given:
             raise HTTPException(422, "没有要修改的内容")
         fields: dict = {"user_locked": True}
+        new_type = m.type
+        if "type" in given:
+            if m.type not in CONVERTIBLE_TYPES or body.type not in CONVERTIBLE_TYPES:
+                raise HTTPException(422, "只能在事实、想法、目标、承诺之间改类型")
+            new_type = fields["type"] = body.type
+            if new_type in TRACKED_STATUSES:
+                if m.status not in TRACKED_STATUSES[new_type]:
+                    fields["status"] = "open"
+            else:
+                fields["status"] = None
+            if new_type != "commitment":
+                fields["due_at"] = None
         if "content" in given:
             if not body.content or not body.content.strip():
                 raise HTTPException(422, "内容不能为空")
             fields["content"] = body.content.strip()
         if "status" in given:
-            if m.type != "commitment" or body.status not in COMMITMENT_STATUSES:
-                raise HTTPException(422, "只有承诺可以设置状态，且状态必须是 open/done/dropped/overdue")
+            if body.status not in TRACKED_STATUSES.get(new_type, ()):
+                raise HTTPException(422, "只有目标和承诺有状态；目标没有“逾期”")
             fields["status"] = body.status
         if "importance" in given:
             if body.importance is None or not 1 <= body.importance <= 5:

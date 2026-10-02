@@ -206,3 +206,32 @@ def test_memory_status_endpoint(client):
     assert data["state"] == "idle"
     assert data["pending_messages"] == 0
     assert data["error"] is None
+
+
+def test_patch_type_conversion(client, app):
+    from datetime import date
+
+    m = add(app, "fact", "想靠 AI 挣钱")
+    r = client.patch(f"/api/memories/{m.id}", json={"type": "goal"}).json()
+    assert (r["type"], r["status"], r["due_at"]) == ("goal", "open", None)
+    c = add(app, "commitment", "周五交", status="overdue", due_at=date(2026, 10, 9))
+    r = client.patch(f"/api/memories/{c.id}", json={"type": "idea"}).json()
+    assert (r["type"], r["status"], r["due_at"]) == ("idea", None, None)
+
+
+@pytest.mark.parametrize("body", [{"type": "pattern"}, {"type": "dream"}])
+def test_patch_type_rejects_non_convertible(client, app, body):
+    m = add(app, "fact", "x")
+    assert client.patch(f"/api/memories/{m.id}", json=body).status_code == 422
+
+
+def test_patch_goal_status(client, app):
+    g = add(app, "goal", "考研", status="open")
+    assert client.patch(f"/api/memories/{g.id}", json={"status": "done"}).json()["status"] == "done"
+    assert client.patch(f"/api/memories/{g.id}", json={"status": "overdue"}).status_code == 422
+
+
+def test_pattern_type_cannot_be_changed(client, app):
+    e1, e2 = add(app, "episode", "a"), add(app, "episode", "b")
+    p = add(app, "pattern", "熬夜", evidence=[e1.id, e2.id])
+    assert client.patch(f"/api/memories/{p.id}", json={"type": "fact"}).status_code == 422

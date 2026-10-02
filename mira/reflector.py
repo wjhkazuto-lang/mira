@@ -65,7 +65,9 @@ class Reflector:
             episodes="\n".join(format_memory(m) for m in sorted(recent, key=lambda m: m.id)),
             patterns="\n".join(f"{format_memory(p)}（证据：{' '.join(f'#{e}' for e in p.evidence)}）" for p in patterns)
             or "（无）",
-            commitments="\n".join(format_memory(c) for c in self._store.open_commitments()) or "（无）",
+            commitments="\n".join(
+                format_memory(m) for m in self._store.open_goals() + self._store.open_commitments()
+            ) or "（无）",
             profile=profile.content if profile else "（还没有）",
         )
         data = await self._llm.complete_json(

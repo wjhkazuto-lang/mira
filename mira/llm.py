@@ -44,7 +44,13 @@ def _retryable(e: openai.APIError) -> bool:
 
 class LLM(Protocol):
     async def complete_json(
-        self, *, purpose: str, model: str, messages: list[dict], max_tokens: int = 2000
+        self,
+        *,
+        purpose: str,
+        model: str,
+        messages: list[dict],
+        max_tokens: int = 2000,
+        temperature: float | None = None,
     ) -> dict: ...
 
 
@@ -55,11 +61,18 @@ class DeepSeekLLM:
         self._sleep = sleep
 
     async def complete_json(
-        self, *, purpose: str, model: str, messages: list[dict], max_tokens: int = 2000
+        self,
+        *,
+        purpose: str,
+        model: str,
+        messages: list[dict],
+        max_tokens: int = 2000,
+        temperature: float | None = None,
     ) -> dict:
+        extra = {"temperature": temperature} if temperature is not None else {}
         raw = ""
         for _ in range(2):  # 格式不对时重试 1 次
-            raw = await self._create(purpose, model, messages, max_tokens)
+            raw = await self._create(purpose, model, messages, max_tokens, extra)
             try:
                 data = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
@@ -68,7 +81,7 @@ class DeepSeekLLM:
                 return data
         raise LLMBadJSON(raw)
 
-    async def _create(self, purpose: str, model: str, messages: list[dict], max_tokens: int) -> str:
+    async def _create(self, purpose: str, model: str, messages: list[dict], max_tokens: int, extra: dict) -> str:
         for attempt in range(len(API_RETRY_DELAYS) + 1):
             try:
                 resp = await self._client.chat.completions.create(
@@ -76,6 +89,7 @@ class DeepSeekLLM:
                     messages=messages,
                     max_tokens=max_tokens,
                     response_format={"type": "json_object"},
+                    **extra,
                 )
             except openai.APIError as e:
                 if attempt == len(API_RETRY_DELAYS) or not _retryable(e):

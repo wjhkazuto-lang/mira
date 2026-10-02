@@ -165,3 +165,12 @@ async def test_reflector_leaves_room_for_reasoning(store, clock):
     r, llm = make(store, clock, [out()])
     await r.run()
     assert llm.calls[0]["max_tokens"] >= 8000
+
+
+async def test_reflector_sees_goals_and_self_judgment_guidance(store, clock):
+    episodes(store)
+    g = mem(store, "goal", "把程序做到厂里能用", status="open")
+    r, llm = make(store, clock, [out()])
+    await r.run()
+    prompt = llm.calls[0]["messages"][0]["content"]
+    assert f"#{g.id} [目标·进行中]" in prompt and "自我否定" in prompt and "不要逾期" not in prompt

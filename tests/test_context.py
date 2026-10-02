@@ -10,12 +10,13 @@ from mira.prompts import render
 V = np.zeros(4, dtype=np.float32)
 
 
-def build(store, clock, history=(), new=("今天好累",), memories=(), commitments=(), profile="他是程序员"):
+def build(store, clock, history=(), new=("今天好累",), memories=(), commitments=(), profile="他是程序员", goals=()):
     hist = [store.add_message(r, c) for r, c in history]
     new_msgs = [store.add_message("user", c, batch_id="b") for c in new]
     return build_chat_messages(
         persona="我是 Mira", rules="规则", profile=profile, history=hist, new_messages=new_msgs,
-        memories=list(memories), commitments=list(commitments), now=clock.now(), last_chat_at=None,
+        memories=list(memories), commitments=list(commitments), goals=list(goals), now=clock.now(),
+        last_chat_at=None,
     )
 
 
@@ -51,7 +52,7 @@ def test_commitment_not_duplicated(store, clock):
 
 
 def test_empty_sections_say_none(store, clock):
-    assert build(store, clock)[-1]["content"].count("（无）") == 2
+    assert build(store, clock)[-1]["content"].count("（无）") == 3
 
 
 def test_new_messages_joined(store, clock):
@@ -119,3 +120,40 @@ def test_render_keeps_braces_in_values():
     assert "我：{{name}} 是什么意思？" in text
     with pytest.raises(KeyError):
         render("writer", today="t", existing="x")  # 模板自己的占位符缺了，仍然要报错
+
+
+def test_idea_and_goal_labels(store):
+    i = store.add_memory("idea", "想学吉他", vector=V, actor="w")
+    g = store.add_memory("goal", "考研", vector=V, actor="w", status="open")
+    assert format_memory(i) == f"#{i.id} [想法] 想学吉他"
+    assert format_memory(g) == f"#{g.id} [目标·进行中] 考研"
+
+
+def test_goals_section_and_dedup(store, clock):
+    g = store.add_memory("goal", "把程序做到厂里能用", vector=V, actor="w", status="open")
+    last = build(store, clock, memories=[g], goals=[g])[-1]["content"]
+    assert "正在追的目标：" in last and last.count(f"#{g.id}") == 1
+    assert last.index("正在追的目标：") < last.index("【新消息】")
+
+
+def _rule_examples():
+    import json
+    import re
+
+    text = render("chat_rules", crisis_resources="X")
+    return text, [json.loads(b) for b in re.findall(r"```json\n(.*?)```", text, re.S)]
+
+
+def test_rules_have_varied_examples():
+    # 只有一个"三条气泡 + 问句结尾"的示例时，模型会照着格式回
+    _, examples = _rule_examples()
+    counts = [len(e["messages"]) for e in examples]
+    assert len(examples) >= 3 and len(set(counts)) >= 2 and 1 in counts
+    assert any(not any("？" in m or "?" in m for m in e["messages"]) for e in examples)
+    assert all(set(e) == {"mood_read", "approach", "messages"} for e in examples)
+
+
+def test_rules_cover_intent_levels_and_style():
+    text, _ = _rule_examples()
+    for phrase in ("只针对承诺", "想法", "目标", "不要复述", "最多一个问题", "说说看"):
+        assert phrase in text

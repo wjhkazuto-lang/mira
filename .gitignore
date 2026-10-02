@@ -1,6 +1,7 @@
 # 密钥和个人数据——绝不提交
 .env
 data/
+persona.local.md
 
 # Python
 __pycache__/

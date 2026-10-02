@@ -318,3 +318,20 @@ async def test_chat_leaves_room_for_reasoning(mstore, mclock):
     await engine.on_user_message("hi")
     await mclock.advance(10)
     assert llm.calls[0]["max_tokens"] >= 4000
+
+
+async def test_chat_uses_configured_temperature(mstore, mclock):
+    engine, llm, _ = make(mstore, mclock, [reply("嗯")])
+    await engine.on_user_message("hi")
+    await mclock.advance(10)
+    assert llm.calls[0]["temperature"] == SETTINGS.chat_temperature == 1.3
+
+
+async def test_open_goals_in_context(mstore, mclock):
+    g = mstore.add_memory("goal", "把程序做到厂里能用", vector=EMB.embed(["x"])[0], actor="w", status="open")
+    engine, llm, _ = make(mstore, mclock, [reply("嗯")])
+    await engine.on_user_message("今天吃了火锅")
+    await mclock.advance(10)
+    text = final_user(llm.calls[0])
+    goals_section = text[text.index("正在追的目标："):text.index("进行中的承诺：")]
+    assert f"#{g.id} [目标·进行中]" in goals_section

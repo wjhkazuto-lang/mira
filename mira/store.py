@@ -13,7 +13,7 @@ import numpy as np
 from mira import clock
 from mira.textutil import clip_text, estimate_tokens
 
-MEMORY_TYPES = ("fact", "person", "commitment", "pattern", "episode")
+MEMORY_TYPES = ("fact", "person", "idea", "goal", "commitment", "pattern", "episode")
 COMMITMENT_STATUSES = ("open", "done", "dropped", "overdue")
 APPROACHES = ("comfort", "normal", "raise_issue", "crisis")
 
@@ -79,7 +79,7 @@ class LogEntry:
 
 
 _UPDATABLE = {
-    "content", "subject", "importance", "status", "due_at", "evidence", "source_message_ids", "user_locked", "superseded_by",
+    "type", "content", "subject", "importance", "status", "due_at", "evidence", "source_message_ids", "user_locked", "superseded_by",
 }
 
 
@@ -303,7 +303,11 @@ class Store:
             before = self.get_memory(id)
             if before is None:
                 raise KeyError(id)
-            _validate(before.type, fields.get("importance", before.importance), fields.get("status", before.status))
+            _validate(
+                fields.get("type", before.type),
+                fields.get("importance", before.importance),
+                fields.get("status", before.status),
+            )
             cols = dict(fields)
             if "due_at" in cols:
                 cols["due_at"] = cols["due_at"].isoformat() if cols["due_at"] else None
@@ -344,6 +348,12 @@ class Store:
         rows = self._db.execute(
             "SELECT * FROM memories WHERE type='commitment' AND status IN ('open','overdue')"
             " AND superseded_by IS NULL ORDER BY due_at IS NULL, due_at, id"
+        )
+        return [_memory(r) for r in rows]
+
+    def open_goals(self) -> list[Memory]:
+        rows = self._db.execute(
+            "SELECT * FROM memories WHERE type='goal' AND status='open' AND superseded_by IS NULL ORDER BY id"
         )
         return [_memory(r) for r in rows]
 

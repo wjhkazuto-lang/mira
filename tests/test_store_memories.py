@@ -46,7 +46,7 @@ def test_update_logs_before_after(store, clock):
 def test_update_rejects_unknown_field(store):
     m = add(store)
     with pytest.raises(ValueError):
-        store.update_memory(m.id, actor="user", type="person")
+        store.update_memory(m.id, actor="user", created_at="x")
 
 
 def test_delete_removes_vector_and_logs(store):
@@ -118,3 +118,26 @@ def test_deleted_ids_never_reused(store):
 
 def test_schema_version_set(store):
     assert store._db.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_idea_and_goal_types(store):
+    idea = add(store, "idea", "想学吉他")
+    goal = add(store, "goal", "考研", status="open")
+    assert (idea.type, idea.status, goal.type, goal.status) == ("idea", None, "goal", "open")
+
+
+def test_open_goals(store):
+    a = add(store, "goal", "考研", status="open")
+    add(store, "goal", "减肥", status="done")
+    add(store, "commitment", "周五交报告", status="open")
+    old = add(store, "goal", "旧目标", status="open")
+    store.update_memory(old.id, actor="writer", superseded_by=a.id)
+    assert [m.id for m in store.open_goals()] == [a.id]
+
+
+def test_change_memory_type(store):
+    m = add(store, "fact", "想靠 AI 挣钱")
+    got = store.update_memory(m.id, actor="user", type="idea")
+    assert got.type == "idea"
+    with pytest.raises(ValueError):
+        store.update_memory(m.id, actor="user", type="dream")

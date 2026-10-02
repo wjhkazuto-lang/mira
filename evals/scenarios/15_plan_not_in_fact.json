@@ -1,0 +1,5 @@
+{"name": "打算不混进事实", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "我平时喜欢做点手工皮具，打算明年开个网店卖"},
+              {"role": "assistant", "content": "可以啊，你做的都是什么？"}],
+ "run": ["writer"],
+ "expect": [{"type": "fact", "contains": "网店", "max_count": 0}, {"type": "commitment", "max_count": 0}]}

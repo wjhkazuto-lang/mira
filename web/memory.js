@@ -2,14 +2,20 @@
 (() => {
   const TABS = [
     ["profile", "核心档案"],
+    ["goal", "目标"],
     ["commitment", "承诺"],
+    ["idea", "想法"],
     ["pattern", "模式"],
     ["person", "人物"],
     ["fact", "事实"],
     ["episode", "事件"],
   ];
-  const TYPE_ZH = { fact: "事实", person: "人物", commitment: "承诺", pattern: "模式", episode: "事件" };
+  const TYPE_ZH = {
+    fact: "事实", person: "人物", idea: "想法", goal: "目标", commitment: "承诺", pattern: "模式", episode: "事件",
+  };
   const STATUS_ZH = { open: "进行中", done: "完成", dropped: "放弃", overdue: "逾期" };
+  const STATUSES_FOR = { goal: ["open", "done", "dropped"], commitment: ["open", "done", "dropped", "overdue"] };
+  const CONVERTIBLE = ["fact", "idea", "goal", "commitment"];  // 分错了可以在这几种之间改
   const ACTOR_ZH = { writer: "她整理时", reflector: "她反思时", user: "你" };
   const OP_ZH = { add: "新增", update: "修改", delete: "删除" };
 
@@ -31,7 +37,7 @@
   });
 
   let listSeq = 0;  // 只渲染最后一次请求的结果，避免快速切换标签时旧响应覆盖新内容
-  let tab = TABS.some(([k]) => k === location.hash.slice(1)) ? location.hash.slice(1) : "commitment";
+  let tab = TABS.some(([k]) => k === location.hash.slice(1)) ? location.hash.slice(1) : "goal";
 
   // ---------- 工具 ----------
 
@@ -170,10 +176,10 @@
 
     const meta = el("div", "meta");
     if (m.type === "person" && m.subject) meta.appendChild(el("span", "badge", m.subject));
-    if (m.type === "commitment") {
+    if (STATUSES_FOR[m.type]) {
       const sel = el("select");
-      for (const [k, v] of Object.entries(STATUS_ZH)) {
-        const o = el("option", "", v);
+      for (const k of STATUSES_FOR[m.type]) {
+        const o = el("option", "", STATUS_ZH[k]);
         o.value = k;
         o.selected = m.status === k;
         sel.appendChild(o);
@@ -243,9 +249,22 @@
         ta.value = m.content;
         content.replaceWith(ta);
         ta.focus();
+        let typeSel = null;
+        if (CONVERTIBLE.includes(m.type)) {
+          typeSel = el("select");
+          for (const t of CONVERTIBLE) {
+            const o = el("option", "", `记为：${TYPE_ZH[t]}`);
+            o.value = t;
+            o.selected = t === m.type;
+            typeSel.appendChild(o);
+          }
+        }
         actions.replaceChildren(
+          ...(typeSel ? [typeSel] : []),
           button("保存", async () => {
-            await api(`/api/memories/${m.id}`, { method: "PATCH", body: { content: ta.value } });
+            const body = { content: ta.value };
+            if (typeSel && typeSel.value !== m.type) body.type = typeSel.value;
+            await api(`/api/memories/${m.id}`, { method: "PATCH", body });
             toast("已保存，这条记忆以后不会被她自动改动");
             refresh();
           }, "primary"),

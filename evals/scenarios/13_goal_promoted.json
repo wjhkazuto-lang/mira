@@ -1,0 +1,6 @@
+{"name": "目标说定具体安排后升级为承诺", "now": "2026-10-02T21:00:00+08:00",
+ "seed_memories": [{"type": "goal", "content": "在准备考研", "status": "open"}],
+ "messages": [{"role": "user", "content": "定了，这周六之前我要把数学第一章刷完"},
+              {"role": "assistant", "content": "好，周六我来问你"}],
+ "run": ["writer"],
+ "expect": [{"type": "commitment", "contains": "第一章", "due_at": "2026-10-03"}]}

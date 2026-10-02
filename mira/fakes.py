@@ -29,8 +29,12 @@ class FakeLLM:
         self.script = list(script)
         self.calls: list[dict] = []
 
-    async def complete_json(self, *, purpose: str, model: str, messages: list[dict], max_tokens: int = 2000) -> dict:
-        self.calls.append({"purpose": purpose, "model": model, "messages": messages, "max_tokens": max_tokens})
+    async def complete_json(
+        self, *, purpose: str, model: str, messages: list[dict], max_tokens: int = 2000, temperature=None
+    ) -> dict:
+        self.calls.append(
+            {"purpose": purpose, "model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+        )
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -40,7 +44,9 @@ class FakeLLM:
 class EchoLLM:
     """开发模式用的假模型：复读你说的话，不产生记忆。"""
 
-    async def complete_json(self, *, purpose: str, model: str, messages: list[dict], max_tokens: int = 2000) -> dict:
+    async def complete_json(
+        self, *, purpose: str, model: str, messages: list[dict], max_tokens: int = 2000, temperature=None
+    ) -> dict:
         if purpose == "writer":
             return {"ops": [], "episode": {"content": "开发模式事件", "importance": 1}}
         if purpose == "reflector":

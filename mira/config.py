@@ -20,6 +20,7 @@ class Settings:
     chat_model: str = "deepseek-v4-pro"
     background_model: str = "deepseek-flash"
     reflect_model: str = "deepseek-v4-pro"
+    chat_temperature: float = 1.3  # DeepSeek 官方给通用对话的推荐值
     debounce_seconds: float = 3
     max_wait_seconds: float = 60
     idle_write_minutes: float = 10
@@ -60,6 +61,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         except ValueError as e:
             raise ConfigError(f"配置项 {f.name.upper()} 的值无效：{raw!r}") from e
 
+    # 本地专用的人设（可能写了很多关于你的事）优先，它不会被 git 提交
+    if "persona_path" not in values and (PROJECT_ROOT / "persona.local.md").exists():
+        values["persona_path"] = Path("persona.local.md")
     if values.get("fake") and "db_path" not in values:
         values["db_path"] = Path("data/dev.db")  # 开发模式默认用单独的数据库，免得假数据混进真记忆
     for key in ("db_path", "persona_path"):

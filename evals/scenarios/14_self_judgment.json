@@ -1,0 +1,7 @@
+{"name": "负面自我评价不记成事实", "now": "2026-10-02T21:00:00+08:00", "seed_memories": [],
+ "messages": [{"role": "user", "content": "又没坚持下来，健身才去了三次就不去了"},
+              {"role": "user", "content": "我就是个坚持不了任何事的人"},
+              {"role": "assistant", "content": "三次也是去了啊，别一句话把自己全否定了"}],
+ "run": ["writer"],
+ "expect": [{"type": "fact", "contains": "坚持不了", "max_count": 0}, {"type": "person", "contains": "坚持不了", "max_count": 0},
+            {"type": "episode", "min_count": 1}]}

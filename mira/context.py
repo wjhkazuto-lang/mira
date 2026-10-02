@@ -24,6 +24,10 @@ def format_gap(last: datetime | None, now: datetime) -> str:
 def format_memory(m: Memory) -> str:
     if m.type == "person":
         label = f"人物·{m.subject}" if m.subject else "人物"
+    elif m.type == "idea":
+        label = "想法"
+    elif m.type == "goal":
+        label = f"目标·{_STATUS.get(m.status or 'open', m.status)}"
     elif m.type == "commitment":
         label = f"承诺·{_STATUS.get(m.status or 'open', m.status)}"
         if m.due_at:
@@ -54,6 +58,7 @@ def build_chat_messages(
     new_messages: list[Message],
     memories: list[Memory],
     commitments: list[Memory],
+    goals: list[Memory],
     now: datetime,
     last_chat_at: datetime | None,
 ) -> list[dict]:
@@ -71,13 +76,14 @@ def build_chat_messages(
     for m in history:
         append(m.role, m.content)
 
-    commitment_ids = {c.id for c in commitments}
-    related = [m for m in memories if m.id not in commitment_ids]
+    always = {m.id for m in commitments} | {m.id for m in goals}
+    related = [m for m in memories if m.id not in always]
     final = (
         "【背景】\n"
         f"现在：{_format_now(now)}\n"
         f"距离上次聊天：{format_gap(last_chat_at, now)}\n"
         f"相关记忆：\n{_lines(related)}\n"
+        f"正在追的目标：\n{_lines(goals)}\n"
         f"进行中的承诺：\n{_lines(commitments)}\n\n"
         "【新消息】\n" + "\n".join(m.content for m in new_messages)
     )

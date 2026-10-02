@@ -188,6 +188,7 @@ class ChatEngine:
         query = "\n".join(m.content for m in history[-HISTORY_TAIL_FOR_QUERY:] + new)
         memories = [s.memory for s in self._retriever.search(query, self._settings.retrieve_top_k)]
         commitments = self._store.open_commitments()
+        goals = self._store.open_goals()
         profile = self._store.current_profile()
         previous = self._store.latest_message(exclude_batch=batch_id)
         messages = build_chat_messages(
@@ -198,12 +199,17 @@ class ChatEngine:
             new_messages=new,
             memories=memories,
             commitments=commitments,
+            goals=goals,
             now=self._now(),
             last_chat_at=previous.created_at if previous else None,
         )
         try:
             data = await self._llm.complete_json(
-                purpose="chat", model=self._settings.chat_model, messages=messages, max_tokens=4000
+                purpose="chat",
+                model=self._settings.chat_model,
+                messages=messages,
+                max_tokens=4000,
+                temperature=self._settings.chat_temperature,
             )
             reply = parse_reply(data)
         except LLMBadJSON as e:
@@ -220,7 +226,7 @@ class ChatEngine:
         if reply is None:
             await self._broadcast(ERROR_EVENT)
             return
-        self._store.touch_recalled({m.id for m in memories} | {c.id for c in commitments})
+        self._store.touch_recalled({m.id for m in memories} | {c.id for c in commitments} | {g.id for g in goals})
         await self._deliver(batch_id, reply)
 
     async def _deliver(self, batch_id: str, reply: Reply) -> None:

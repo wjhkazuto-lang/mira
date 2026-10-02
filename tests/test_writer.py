@@ -194,3 +194,49 @@ async def test_update_adds_new_sources(store, clock):
     w, _ = make_writer(store, clock, [{"ops": [{"op": "update", "id": m.id, "content": "养两只猫"}], "episode": EPISODE}])
     await w.run()
     assert store.get_memory(m.id).source_message_ids == [old_msg.id, new_msg.id]
+
+
+async def test_adds_idea_and_goal(store, clock):
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [
+        {"op": "add", "type": "idea", "content": "想学吉他", "due_at": "2026-10-09"},
+        {"op": "add", "type": "goal", "content": "考研"},
+    ], "episode": EPISODE}])
+    await w.run()
+    [i] = store.list_memories("idea")
+    [g] = store.list_memories("goal")
+    assert (i.status, i.due_at) == (None, None)  # 想法不带状态、不带截止日期
+    assert g.status == "open"
+
+
+async def test_goal_status_and_promotion(store, clock):
+    g = mem(store, "goal", "把程序做到厂里能用", status="open")
+    idea = mem(store, "idea", "想学吉他")
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [
+        {"op": "supersede", "id": g.id, "new": {"type": "commitment", "content": "周五前搞定文字识别", "due_at": "2026-10-09"}},
+        {"op": "set_status", "id": idea.id, "status": "done"},
+    ], "episode": EPISODE}])
+    result = await w.run()
+    [c] = store.list_memories("commitment", include_superseded=False)
+    assert store.get_memory(g.id).superseded_by == c.id and c.due_at == date(2026, 10, 9)
+    assert len(result.skipped) == 1  # 想法没有状态
+
+
+async def test_goal_set_status_done(store, clock):
+    g = mem(store, "goal", "考研", status="open")
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [{"op": "set_status", "id": g.id, "status": "done"}], "episode": EPISODE}])
+    await w.run()
+    assert store.get_memory(g.id).status == "done"
+
+
+async def test_writer_prompt_explains_intent_levels_and_self_judgment(store, clock):
+    g = mem(store, "goal", "考研", status="open")
+    chat(store)
+    w, llm = make_writer(store, clock, [{"ops": [], "episode": EPISODE}])
+    await w.run()
+    prompt = llm.calls[0]["messages"][0]["content"]
+    for word in ("idea", "goal", "commitment", "宁可往低一档", "自我评价"):
+        assert word in prompt
+    assert f"#{g.id}" in prompt
