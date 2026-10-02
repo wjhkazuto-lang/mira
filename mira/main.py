@@ -77,7 +77,11 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
         origin = request.headers.get("origin")
         if request.method not in ("GET", "HEAD", "OPTIONS") and origin and origin not in origins:
             return JSONResponse({"detail": "拒绝来自其他网站的请求"}, status_code=403)
-        return await call_next(request)
+        response = await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            # 页面、样式、立绘：每次都向服务器确认有没有更新（没变时返回 304，几乎不费时间）
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
 
     app.state.store = store
     app.state.embedder = embedder

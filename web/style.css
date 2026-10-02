@@ -12,7 +12,7 @@
   --me-bubble: #dce8ef;
   --note-bg: #eee9dd;
   --danger: #b4574a;
-  --veil: rgba(245, 242, 233, 0.78);
+  --veil: rgba(245, 242, 233, 0.3);
   --radius: 18px;
   --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
   --serif: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", Georgia, serif;
@@ -34,7 +34,7 @@
     --me-bubble: #2a3e52;
     --note-bg: #1a2330;
     --danger: #e08b7d;
-    --veil: rgba(19, 26, 37, 0.72);
+    --veil: rgba(19, 26, 37, 0.35);
     color-scheme: dark;
   }
 }

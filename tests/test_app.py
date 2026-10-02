@@ -252,3 +252,9 @@ def test_theme_api_and_static(tmp_path):
 
 def test_theme_api_without_theme(client):
     assert client.get("/api/theme").json() == {"expressions": {}, "backgrounds": {}}
+
+
+def test_static_files_revalidated(client):
+    # 更新界面后不用强制刷新：浏览器每次都先问服务器文件变没变
+    assert client.get("/static/style.css").headers.get("cache-control") == "no-cache"
+    assert client.get("/").headers.get("cache-control") == "no-cache"
