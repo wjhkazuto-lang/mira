@@ -199,6 +199,15 @@ class Store:
             out.append(_message(row))
         return list(reversed(out))
 
+    def get_messages(self, ids: Iterable[int]) -> list[Message]:
+        ids = list(ids)
+        if not ids:
+            return []
+        rows = self._db.execute(
+            f"SELECT * FROM messages WHERE id IN ({','.join('?' * len(ids))}) ORDER BY id", ids
+        )
+        return [_message(r) for r in rows]
+
     def messages_in_batch(self, batch_id: str) -> list[Message]:
         rows = self._db.execute("SELECT * FROM messages WHERE batch_id=? ORDER BY id", (batch_id,))
         return [_message(r) for r in rows]

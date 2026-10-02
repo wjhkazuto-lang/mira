@@ -72,3 +72,11 @@ def test_file_db_creates_parent_dir(tmp_path):
     s = Store(tmp_path / "nested" / "mira.db")
     s.add_message("user", "hi")
     assert (tmp_path / "nested" / "mira.db").exists()
+
+
+def test_get_messages_by_ids(store):
+    a = store.add_message("user", "a")
+    store.add_message("user", "b")
+    c = store.add_message("user", "c")
+    assert [m.content for m in store.get_messages([c.id, a.id, 999])] == ["a", "c"]
+    assert store.get_messages([]) == []
