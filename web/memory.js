@@ -19,6 +19,7 @@
   const searchEl = document.getElementById("search");
   const toastEl = document.getElementById("toast");
 
+  let listSeq = 0;  // 只渲染最后一次请求的结果，避免快速切换标签时旧响应覆盖新内容
   let tab = TABS.some(([k]) => k === location.hash.slice(1)) ? location.hash.slice(1) : "commitment";
 
   // ---------- 工具 ----------
@@ -51,11 +52,17 @@
   }
 
   async function api(path, options = {}) {
-    const res = await fetch(path, {
-      headers: { "Content-Type": "application/json" },
-      ...options,
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
+    let res;
+    try {
+      res = await fetch(path, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+    } catch (e) {
+      toast("连不上 Mira，确认她正在运行");
+      throw e;
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const msg = typeof data.detail === "string" ? data.detail : "操作失败";
@@ -102,10 +109,12 @@
 
   async function loadList() {
     if (tab === "profile") return renderProfile();
+    const seq = ++listSeq;
     const q = searchEl.value.trim();
     const params = new URLSearchParams({ type: tab });
     if (q) params.set("q", q);
     const items = await api(`/api/memories?${params}`);
+    if (seq !== listSeq) return;
     listEl.replaceChildren();
     if (!items.length) {
       listEl.appendChild(el("div", "empty", q ? "没有搜到相关的记忆" : "这里还是空的"));
@@ -136,9 +145,16 @@
         sel.appendChild(o);
       }
       sel.onchange = async () => {
-        await api(`/api/memories/${m.id}`, { method: "PATCH", body: { status: sel.value } });
-        toast("状态已更新");
-        refresh();
+        sel.disabled = true;
+        try {
+          await api(`/api/memories/${m.id}`, { method: "PATCH", body: { status: sel.value } });
+          toast("状态已更新");
+          refresh();
+        } catch {
+          sel.value = m.status;  // 没保存成功就恢复原样（api 已经提示了错误）
+        } finally {
+          sel.disabled = false;
+        }
       };
       meta.appendChild(sel);
       if (m.due_at) meta.appendChild(el("span", "", `截止 ${m.due_at}`));
@@ -219,7 +235,9 @@
   // ---------- 核心档案 ----------
 
   async function renderProfile() {
+    const seq = ++listSeq;
     const { current, history } = await api("/api/profile");
+    if (seq !== listSeq) return;
     listEl.replaceChildren();
 
     const editor = el("div", "card");

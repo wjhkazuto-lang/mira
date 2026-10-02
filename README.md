@@ -15,7 +15,8 @@ Mira 是一个运行在你自己电脑上的 AI 朋友。她会记得你说过�
 ## 隐私
 
 - 聊天记录和记忆**全部存在你电脑上**的 `data/mira.db` 文件里
-- 服务只监听 `127.0.0.1`，同一网络下的其他设备访问不到
+- 服务只监听 `127.0.0.1`，同一网络下的其他设备访问不到；也会拒绝其他网站在你浏览器里发起的访问
+- **没有登录密码**：这台电脑上的其他程序仍然可以访问 Mira 的接口、读写聊天和记忆。请只在自己信任的电脑上使用
 - 每次聊天和整理记忆时，相关内容会发送给 **DeepSeek API** 处理，请了解这一点后再使用
 
 ## 免责声明
@@ -70,6 +71,7 @@ MIRA_FAKE=1 DB_PATH=data/dev.db uv run python -m mira
 
 ```bash
 uv run pytest                          # 单元测试（不调用 API，不花钱）
+node --test tests/web/sync.test.js     # 前端消息合并逻辑的测试（需要 Node.js）
 RUN_SLOW=1 uv run pytest -m slow       # 测试真实的向量模型（需要联网下载）
 uv run python evals/run_evals.py       # 记忆质量评估（调用真实 API，跑一次约几分钱）
 ```

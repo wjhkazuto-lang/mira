@@ -10,7 +10,8 @@
   const TYPING_THROTTLE = 2000;
   const STALE_UNANSWERED_MS = 2 * 60 * 1000;
 
-  let messages = [];        // {id, role, content, created_at}，按时间升序
+  const { mergeMessages, applyUserEcho, applyBubble } = window.MiraSync;
+  let messages = [];        // {id, client_id?, role, content, created_at}；id 为 null 的是还没确认的消息
   let typing = false;       // Mira 正在输入
   let notice = null;        // {text, retry: bool}
   let ws = null;
@@ -102,8 +103,10 @@
   }
 
   async function loadInitial() {
-    messages = await fetchMessages();
-    noMoreHistory = messages.length < 50;
+    const fetched = await fetchMessages();
+    const first = !messages.length;
+    messages = mergeMessages(messages, fetched);  // 快照可能比实时事件旧，只合并不替换
+    if (first) noMoreHistory = fetched.length < 50;
     const last = messages[messages.length - 1];
     if (last && last.role === "user" && Date.now() - new Date(last.created_at) > STALE_UNANSWERED_MS) {
       notice = { text: "Mira 还没回复上一条", retry: true };
@@ -119,7 +122,7 @@
       if (older.length < 50) noMoreHistory = true;
       if (older.length) {
         const prevHeight = log.scrollHeight;
-        messages = older.concat(messages);
+        messages = mergeMessages(messages, older);
         render();
         log.scrollTop += log.scrollHeight - prevHeight;  // 保持当前阅读位置
       }
@@ -161,9 +164,11 @@
       const ev = JSON.parse(e.data);
       if (ev.type === "typing") {
         typing = true;
+      } else if (ev.type === "user_message") {
+        messages = applyUserEcho(messages, ev);
       } else if (ev.type === "bubble") {
         typing = false;
-        messages.push({ id: ev.id, role: "assistant", content: ev.text, created_at: ev.created_at });
+        messages = applyBubble(messages, ev);
       } else if (ev.type === "error") {
         typing = false;
         notice = { text: ev.message, retry: true };
@@ -190,8 +195,9 @@
   function submit() {
     const text = input.value.trim();
     if (!text) return;
-    if (!send({ type: "message", text })) return;  // 没连上时保留输入内容
-    messages.push({ id: null, role: "user", content: text, created_at: new Date().toISOString() });
+    const client_id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    if (!send({ type: "message", text, client_id })) return;  // 没连上时保留输入内容
+    messages.push({ id: null, client_id, role: "user", content: text, created_at: new Date().toISOString() });
     notice = null;
     input.value = "";
     autosize();
