@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mira-dev",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "MIRA_FAKE=1 DB_PATH=data/dev.db exec $HOME/.local/bin/uv run python -m mira"],
+      "port": 8000
+    }
+  ]
+}

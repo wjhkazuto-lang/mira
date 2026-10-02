@@ -1,4 +1,24 @@
 <!doctype html>
-<meta charset="utf-8">
-<title>Mira</title>
-<p>Mira</p>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mira</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Mira</h1>
+      <a href="/memory">记忆</a>
+    </header>
+    <div class="banner" id="banner">连接中…</div>
+    <main id="log" aria-live="polite"></main>
+    <form class="composer" id="composer">
+      <textarea id="input" rows="1" placeholder="说点什么…" title="Enter 发送，Shift+Enter 换行" autofocus></textarea>
+      <button class="primary" id="send" type="submit">发送</button>
+    </form>
+  </div>
+  <script src="/static/chat.js"></script>
+</body>
+</html>
