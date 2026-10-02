@@ -79,6 +79,8 @@ class Reflector:
         skipped: list[str] = []
         raw_ops = data.get("patterns")
         with self._store.transaction():
+            # 模型调用期间用户可能删了事件，证据要按此刻的数据重新核对
+            episode_ids = {m.id for m in self._store.list_memories("episode")}
             for op in raw_ops if isinstance(raw_ops, list) else []:
                 why = self._apply(op, episode_ids) if isinstance(op, dict) else "模式操作格式不对"
                 if why:
@@ -87,7 +89,10 @@ class Reflector:
                     applied += 1
             new_profile = data.get("profile").strip() if isinstance(data.get("profile"), str) else ""
             profile_updated = False
-            if not new_profile:
+            latest = self._store.current_profile()
+            if (latest.id if latest else None) != (profile.id if profile else None):
+                skipped.append("反思期间核心档案被修改过，保留新版，不覆盖")
+            elif not new_profile:
                 skipped.append("没有给出新的核心档案")
             elif estimate_tokens(new_profile) > PROFILE_MAX_TOKENS:
                 skipped.append(f"新的核心档案太长（{len(new_profile)} 字），保留旧版")

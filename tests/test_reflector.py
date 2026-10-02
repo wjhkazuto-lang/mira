@@ -131,3 +131,30 @@ async def test_dangling_evidence_ignored(store, clock):
     text = "\n".join(m["content"] for m in llm.calls[0]["messages"])
     assert f"#{e3.id}" not in text
     assert store.get_memory(p.id).evidence == [e1.id, e2.id, e3.id]  # 原有证据不改写，只是展示时过滤
+
+
+class MidCallLLM:
+    """模型调用期间执行一段操作（模拟用户在这时改了数据），再返回结果。"""
+
+    def __init__(self, during, result):
+        self.during, self.result = during, result
+
+    async def complete_json(self, **kw):
+        self.during()
+        return self.result
+
+
+async def test_user_profile_edit_during_reflection_wins(store, clock):
+    episodes(store)
+    store.add_profile("TA 在 A 公司", "reflector")
+    llm = MidCallLLM(lambda: store.add_profile("TA 已经离职了", "user"), out(profile="TA 在 A 公司上班，很忙"))
+    result = await Reflector(store, EMB, llm, SETTINGS, now=clock.now).run()
+    assert store.current_profile().content == "TA 已经离职了" and result.profile_updated is False
+
+
+async def test_evidence_rechecked_after_llm_call(store, clock):
+    e1, e2, e3 = episodes(store, 3)
+    llm = MidCallLLM(lambda: store.delete_memory(e2.id, actor="user"),
+                     out([{"op": "add", "content": "熬夜", "evidence": [e1.id, e2.id]}]))
+    await Reflector(store, EMB, llm, SETTINGS, now=clock.now).run()
+    assert store.list_memories("pattern") == []
