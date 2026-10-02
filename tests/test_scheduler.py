@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -9,6 +9,23 @@ from mira.scheduler import Scheduler
 from tests.conftest import FakeClock
 
 SETTINGS = load_settings({"MIRA_FAKE": "1"})
+
+
+async def test_first_run_with_advancing_clock(store):
+    current = datetime.fromisoformat("2026-10-02T20:00:00+08:00")
+
+    def now():
+        nonlocal current
+        current += timedelta(microseconds=1)
+        return current
+
+    writer, reflector = Job(), Job()
+    scheduler = Scheduler(store=store, writer=writer, reflector=reflector, settings=SETTINGS, now=now)
+    store.add_message("user", "测试消息")
+    await scheduler.startup()
+    assert writer.runs == 1
+    assert reflector.runs == 1
+    assert store.get_job_last_run("reflector") is not None
 
 
 class Job:
@@ -134,3 +151,56 @@ async def test_run_forever_survives_tick_error(store, clock):
     with pytest.raises(asyncio.CancelledError):
         await s.run_forever()
     assert len(calls) == 2
+
+
+async def test_status_failure_backoff_then_recovery(store, clock):
+    class RecoveringJob:
+        fail = True
+
+        async def run(self):
+            if self.fail:
+                raise RuntimeError("secret-key-and-private-content")
+            store.mark_processed([m.id for m in store.unprocessed_messages()])
+
+    job = RecoveringJob()
+    scheduler, _, _ = make(store, clock, writer=job)
+    store.add_message("user", "私密正文不应出现在状态中")
+    first = scheduler.status()
+    assert first["state"] == "waiting"
+    clock.advance(60)
+    scheduler.notify_activity()
+    assert scheduler.status()["next_run_at"] > first["next_run_at"]
+    clock.advance(600)
+    await scheduler.tick()
+    failed = scheduler.status()
+    assert failed["state"] == "retrying"
+    assert "secret" not in str(failed) and "私密" not in str(failed)
+    assert failed["last_success_at"] is None
+    assert datetime.fromisoformat(failed["next_run_at"]) == clock.now() + timedelta(minutes=30)
+    job.fail = False
+    clock.advance(1800)
+    await scheduler.tick()
+    success = scheduler.status()
+    assert success["state"] == "idle"
+    assert success["error"] is None
+    assert success["last_success_at"] == clock.now()
+
+
+async def test_status_while_writer_in_flight(store, clock):
+    started, release = asyncio.Event(), asyncio.Event()
+
+    class WaitingJob:
+        async def run(self):
+            started.set()
+            await release.wait()
+
+    scheduler, _, _ = make(store, clock, writer=WaitingJob())
+    store.add_message("user", "测试")
+    task = asyncio.create_task(scheduler.startup())
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        assert scheduler.status()["state"] == "running"
+        assert scheduler.status()["next_run_at"] is None
+    finally:
+        release.set()
+        await task

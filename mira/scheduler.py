@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from mira import clock
 from mira.config import Settings
 from mira.store import Store
+from mira.llm import LLMError, LLMBadJSON
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,28 @@ class Scheduler:
         self._last_activity = now()
         self._lock = asyncio.Lock()
         self._not_before: dict[str, datetime] = {}
+        self._running: str | None = None
+        self._errors: dict[str, str] = {}
+
+    def status(self) -> dict:
+        pending = self._store.pending_message_count()
+        now = self._now()
+        due = self._last_activity + timedelta(minutes=self._settings.idle_write_minutes)
+        retry = self._not_before.get("writer")
+        if retry is not None:
+            due = max(due, retry)
+        state = "running" if self._running == "writer" else (
+            "retrying" if "writer" in self._errors else ("waiting" if pending else "idle")
+        )
+        return {
+            "state": state,
+            "pending_messages": pending,
+            "next_run_at": max(now, due).isoformat() if pending and state != "running" else None,
+            "last_success_at": self._store.get_job_last_run("writer"),
+            "error": self._errors.get("writer"),
+            "reflector_running": self._running == "reflector",
+            "reflector_error": self._errors.get("reflector"),
+        }
 
     def notify_activity(self) -> None:
         self._last_activity = self._now()
@@ -67,17 +90,28 @@ class Scheduler:
         await self._run("writer", self._writer)
 
     async def _run_reflector(self) -> None:
-        if await self._run("reflector", self._reflector):
-            self._store.set_job_last_run("reflector", self._now())
+        await self._run("reflector", self._reflector)
 
     async def _run(self, name: str, job) -> bool:
-        if self._now() < self._not_before.get(name, self._now()):
+        not_before = self._not_before.get(name)
+        if not_before is not None and self._now() < not_before:
             return False
         async with self._lock:
+            self._running = name
             try:
                 await job.run()
-            except Exception:
+                self._store.set_job_last_run(name, self._now())
+                self._errors.pop(name, None)
+                self._not_before.pop(name, None)
+            except Exception as e:
                 log.exception("%s 运行失败，%s 分钟后重试", name, int(FAILURE_BACKOFF.total_seconds() // 60))
                 self._not_before[name] = self._now() + FAILURE_BACKOFF
+                # 不把可能含凭证或私人内容的第三方异常正文发送到页面。
+                self._errors[name] = (
+                    "模型返回格式不正确" if isinstance(e, LLMBadJSON) else
+                    e.user_message if isinstance(e, LLMError) else "后台处理出错，请查看运行终端"
+                )
                 return False
+            finally:
+                self._running = None
         return True

@@ -79,6 +79,12 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
     app.state.store = store
     app.state.embedder = embedder
     app.state.engine = engine
+    app.state.scheduler = scheduler
+
+    @app.get("/api/memory-status")
+    async def memory_status():
+        return scheduler.status()
+
     app.include_router(build_router(store, retriever, embedder))
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 

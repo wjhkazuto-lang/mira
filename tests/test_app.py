@@ -163,3 +163,46 @@ def test_evidence_items_only_episodes(client, app):
     p = add(app, "pattern", "压力大时熬夜", evidence=[e1.id, e2.id, f.id])
     detail = client.get(f"/api/memories/{p.id}").json()
     assert [e["id"] for e in detail["evidence_items"]] == [e1.id, e2.id]
+
+
+async def test_lifespan_catches_up_and_processes_new_messages(tmp_path):
+    """真实应用生命周期 + 调度器 + 写入器 + SQLite；只替换付费模型和时钟等待。"""
+    import asyncio
+
+    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "lifecycle.db"), "IDLE_WRITE_MINUTES": "0"})
+    app = create_app(settings)
+    store = app.state.store
+    scheduler = app.state.scheduler
+    original_sleep = asyncio.sleep
+
+    async def quick_sleep(_):
+        await original_sleep(0.01)
+
+    scheduler._sleep = quick_sleep
+    store.add_message("user", "启动前的测试消息")
+
+    async def wait_processed():
+        async with asyncio.timeout(2):
+            while store.pending_message_count():
+                await original_sleep(0.01)
+
+    async with app.router.lifespan_context(app):
+        await wait_processed()
+        assert len(store.list_memories("episode")) == 1
+        assert scheduler.status()["last_success_at"] is not None
+        store.add_message("user", "启动后的测试消息")
+        scheduler.notify_activity()
+        await wait_processed()
+        assert len(store.list_memories("episode")) == 2
+        assert scheduler.status()["state"] == "idle"
+    # 退出应用后循环必须停止。
+    store.add_message("user", "退出后的消息")
+    await original_sleep(0.03)
+    assert store.pending_message_count() == 1
+
+
+def test_memory_status_endpoint(client):
+    data = client.get("/api/memory-status").json()
+    assert data["state"] == "idle"
+    assert data["pending_messages"] == 0
+    assert data["error"] is None

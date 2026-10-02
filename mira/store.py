@@ -232,6 +232,9 @@ class Store:
         rows = self._db.execute("SELECT * FROM messages WHERE batch_id=? ORDER BY id", (batch_id,))
         return [_message(r) for r in rows]
 
+    def pending_message_count(self) -> int:
+        return self._db.execute("SELECT count(*) FROM messages WHERE processed=0").fetchone()[0]
+
     def unprocessed_messages(self) -> list[Message]:
         rows = self._db.execute("SELECT * FROM messages WHERE processed=0 ORDER BY id")
         return [_message(r) for r in rows]
