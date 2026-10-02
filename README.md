@@ -61,7 +61,7 @@ MIRA_FAKE=1 DB_PATH=data/dev.db uv run python -m mira
 ## 日常使用
 
 - **备份**：复制 `data/mira.db` 就行（如果有 `mira.db-wal` 文件，请先停止 Mira 再复制）
-- **修改人设**：编辑项目根目录下的 `persona.md`，重启后生效。想写一份只属于自己的人设（比如让你常用的 AI 根据对你的了解来写，提示词见 [docs/persona-prompt-for-gpt.md](docs/persona-prompt-for-gpt.md)），就保存为 `persona.local.md`，它会被优先使用，而且不会被 git 提交
+- **选人设 / 改人设**：见下面的"人设"一节
 - **二次元界面**：在项目根目录建一个 `theme/` 文件夹（不会被 git 提交）：
   - `theme/mira/` 放 Mira 的立绘，每种表情一张，文件名用 `calm`（平静）、`talk`（说话）、`smile`（微笑）、`happy`（开心）、`gentle`（温柔）、`worried`（担心）、`surprised`（惊讶）、`annoyed`（不满），格式 png/webp/jpg 都行，有几张放几张。她会按每次回复的语气换表情
   - `theme/background/` 放背景，文件名 `day` / `dusk` / `night`，按你电脑的时间切换；只放一个就全天都用它。可以是图片、动图（gif）或视频（mp4 / webm），视频会静音循环，窗口不在前台时自动暂停
@@ -70,6 +70,26 @@ MIRA_FAKE=1 DB_PATH=data/dev.db uv run python -m mira
 - **纠正记忆**：在记忆管理页（右上角"记忆"）修改或删除。你改过的记忆会被锁定，她不会再自动改动
 - **整理进度**：记忆页上方显示待处理消息数、预计整理时间、上次成功时间及失败提示。你发消息和 Mira 回复都会顺延空闲计时；后台每约 30 秒检查一次，模型处理还需要额外时间。失败后等待约 30 分钟重试。
 - **自动刷新**：记忆页在前台时每 5 秒更新，编辑内容或查看展开的来源时暂停刷新列表，状态仍会更新。上次成功时间保存在本地；正在执行和失败待重试状态仅对应当前运行进程，重启后重新判断并补处理。整理成功不保证一定产生新记忆。
+
+## 人设
+
+Mira 的性格写在一份 Markdown 文件里，`personas/` 里有 5 个现成的模板：
+
+| 模板 | 风格 |
+|---|---|
+| `personas/zhengyou.md`（默认） | **诤友**：聪明、理性、温柔，看时机指出你的问题 |
+| `personas/listener.md` | **温柔倾听者**：以陪伴和倾听为主，你问了才给建议 |
+| `personas/sunyou.md` | **损友**：爱吐槽、会玩梗，关键时刻很靠谱 |
+| `personas/study-buddy.md` | **自律搭子**：关心你的目标和进度，帮你拆小步、适度督促 |
+| `personas/genki.md` | **元气伙伴**：活泼热情、很会捧场 |
+
+**三种用法**（改完重启 Mira 生效）：
+
+1. **直接换模板**：在 `.env` 里写 `PERSONA_PATH=personas/sunyou.md`
+2. **在模板上改**：把喜欢的模板复制一份，命名为项目根目录下的 `persona.local.md`，随便改。它会被优先使用，**而且不会被 git 提交**——在"关于 TA"一节写写你自己，她会更懂你
+3. **自己从头写**：建议沿用模板的结构——性格、说话风格、关于 TA、相处方式、示范台词。也可以让你常用的 AI（比如 ChatGPT）根据对你的了解来写，提示词见 [docs/persona-prompt-for-gpt.md](docs/persona-prompt-for-gpt.md)
+
+写人设时只写"她是谁、怎么和你相处"。回复格式、什么时候安慰、什么时候指出问题、危机时怎么做，这些规则程序里已经统一处理，人设里不用写，写了反而可能冲突。
 
 ## 费用
 

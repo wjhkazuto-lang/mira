@@ -29,7 +29,7 @@ class Settings:
     retrieve_top_k: int = 8
     crisis_resources: str = "全国心理援助热线 12356；希望24热线 400-161-9995；紧急情况 120/110"
     db_path: Path = Path("data/mira.db")
-    persona_path: Path = Path("persona.md")
+    persona_path: Path = Path("personas/zhengyou.md")
     theme_dir: Path = Path("theme")
     host: str = "127.0.0.1"
     port: int = 8000

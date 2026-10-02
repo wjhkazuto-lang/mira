@@ -40,9 +40,9 @@ def test_float_settings_accept_decimals():
 
 
 def test_paths_resolved_against_project_root():
-    s = load_settings({"DEEPSEEK_API_KEY": "k", "PERSONA_PATH": "persona.md"})  # 不受你本地的 persona.local.md 影响
+    s = load_settings({"DEEPSEEK_API_KEY": "k", "PERSONA_PATH": "personas/zhengyou.md"})  # 不受你本地的 persona.local.md 影响
     assert s.db_path == PROJECT_ROOT / "data" / "mira.db"
-    assert s.persona_path == PROJECT_ROOT / "persona.md" and s.persona_path.exists()
+    assert s.persona_path == PROJECT_ROOT / "personas" / "zhengyou.md" and s.persona_path.exists()
     assert load_settings({"DEEPSEEK_API_KEY": "k", "DB_PATH": "/tmp/x.db"}).db_path == Path("/tmp/x.db")
 
 
@@ -65,8 +65,9 @@ def test_local_persona_preferred_when_present(tmp_path, monkeypatch):
     import mira.config as config
 
     monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
-    (tmp_path / "persona.md").write_text("公开版")
-    assert config.load_settings({"MIRA_FAKE": "1"}).persona_path == tmp_path / "persona.md"
+    (tmp_path / "personas").mkdir()
+    (tmp_path / "personas" / "zhengyou.md").write_text("公开版")
+    assert config.load_settings({"MIRA_FAKE": "1"}).persona_path == tmp_path / "personas" / "zhengyou.md"
     (tmp_path / "persona.local.md").write_text("我的版本")
     assert config.load_settings({"MIRA_FAKE": "1"}).persona_path == tmp_path / "persona.local.md"
     assert config.load_settings({"MIRA_FAKE": "1", "PERSONA_PATH": "x.md"}).persona_path == tmp_path / "x.md"

@@ -107,7 +107,7 @@ def test_render_and_missing_var():
 
 
 def test_persona_file_present():
-    assert "Mira" in Path("persona.md").read_text(encoding="utf-8")
+    assert "Mira" in Path("personas/zhengyou.md").read_text(encoding="utf-8")
 
 
 def test_reflector_prompt_uses_third_person():
