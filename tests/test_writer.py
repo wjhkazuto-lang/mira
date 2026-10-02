@@ -177,3 +177,10 @@ async def test_transcript_dates_relative_to_message(store, clock):
     await w.run()
     prompt = llm.calls[0]["messages"][0]["content"]
     assert "[10-01 周四 23:50]" in prompt and "这条消息发出" in prompt
+
+
+async def test_braces_in_chat_do_not_block_writer(store, clock):
+    store.add_message("user", "我在学 Jinja，{{name}} 是什么意思？")
+    w, llm = make_writer(store, clock, [{"ops": [], "episode": EPISODE}])
+    await w.run()
+    assert store.unprocessed_messages() == [] and "{{name}}" in llm.calls[0]["messages"][0]["content"]

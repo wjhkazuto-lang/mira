@@ -112,3 +112,10 @@ def test_persona_file_present():
 def test_reflector_prompt_uses_third_person():
     text = render("reflector", today="t", episodes="e", patterns="p", commitments="c", profile="x")
     assert "第三人称" in text and "TA" in text
+
+
+def test_render_keeps_braces_in_values():
+    text = render("writer", today="t", existing="（无）", transcript="我：{{name}} 是什么意思？")
+    assert "我：{{name}} 是什么意思？" in text
+    with pytest.raises(KeyError):
+        render("writer", today="t", existing="x")  # 模板自己的占位符缺了，仍然要报错
