@@ -1,0 +1,28 @@
+[project]
+name = "mira"
+version = "0.1.0"
+description = "一个有长期记忆的 AI 朋友，运行在你自己的电脑上"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "openai",
+    "fastembed",
+    "numpy",
+    "python-dotenv",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = ["slow: needs network/model download"]
