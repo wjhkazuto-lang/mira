@@ -1,8 +1,10 @@
 # Mira
 
-> A personal AI friend with long-term memory that runs on your own computer. Mira remembers what you tell her, notices recurring patterns in your goals and moods, and — like a good friend — gently points out problems at the right moment. Chinese-first UI; uses the DeepSeek API; all data stays in a local SQLite file. MIT licensed.
+> A personal AI friend with long-term memory that runs on your own computer. Mira remembers what you tell her, notices recurring patterns in your goals and moods, and — like a good friend — gently points out problems at the right moment. Chinese-first UI; uses the DeepSeek API; all data stays in a local SQLite file. MIT licensed. Built with the help of Claude (Anthropic).
 
 Mira 是一个运行在你自己电脑上的 AI 朋友。她会记得你说过的话，留意你反复出现的模式，在合适的时候温和地指出你的问题。
+
+这个项目由作者和 [Claude](https://www.anthropic.com/claude)（Anthropic 的 AI）一起完成：作者提出想法、做决定、把关体验，设计、代码和测试大部分由 Claude 在作者的指导下编写。
 
 ## 她能做什么
 
