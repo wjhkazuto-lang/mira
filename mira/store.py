@@ -4,14 +4,14 @@ import json
 import sqlite3
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
 
 from mira import clock
-from mira.textutil import estimate_tokens
+from mira.textutil import clip_text, estimate_tokens
 
 MEMORY_TYPES = ("fact", "person", "commitment", "pattern", "episode")
 COMMITMENT_STATUSES = ("open", "done", "dropped", "overdue")
@@ -187,17 +187,31 @@ class Store:
         return [_message(r) for r in reversed(rows)]
 
     def recent_messages(self, max_tokens: int, exclude_batch: str | None = None) -> list[Message]:
+        """最近的消息，总长不超过 max_tokens。单条超过预算 1/4 的会被截短，免得一次长粘贴挤掉更早的历史。"""
+        clip = max(max_tokens // 4, 200)
         out: list[Message] = []
         used = 0
         for row in self._db.execute("SELECT * FROM messages ORDER BY id DESC"):
             if exclude_batch is not None and row["batch_id"] == exclude_batch:
                 continue
-            cost = estimate_tokens(row["content"])
+            msg = _message(row)
+            if len(msg.content) > clip:
+                msg = replace(msg, content=clip_text(msg.content, clip))
+            cost = estimate_tokens(msg.content)
             if used + cost > max_tokens:
                 break
             used += cost
-            out.append(_message(row))
+            out.append(msg)
         return list(reversed(out))
+
+    def latest_message(self, exclude_batch: str | None = None) -> Message | None:
+        row = self._db.execute(
+            "SELECT * FROM messages WHERE batch_id IS NOT ? ORDER BY id DESC LIMIT 1"
+            if exclude_batch is not None
+            else "SELECT * FROM messages ORDER BY id DESC LIMIT 1",
+            (exclude_batch,) if exclude_batch is not None else (),
+        ).fetchone()
+        return _message(row) if row else None
 
     def get_messages(self, ids: Iterable[int]) -> list[Message]:
         ids = list(ids)

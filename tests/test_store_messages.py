@@ -80,3 +80,23 @@ def test_get_messages_by_ids(store):
     c = store.add_message("user", "c")
     assert [m.content for m in store.get_messages([c.id, a.id, 999])] == ["a", "c"]
     assert store.get_messages([]) == []
+
+
+def test_recent_clips_oversized_message_keeps_earlier(store):
+    store.add_message("user", "早" * 10)
+    store.add_message("user", "长" * 1000)
+    store.add_message("user", "近" * 10)
+    store.add_message("user", "长" * 5000)
+    store.add_message("user", "近" * 10)
+    recent = store.recent_messages(1000)  # 单条上限 250 字
+    assert [m.content[0] for m in recent] == ["早", "长", "近", "长", "近"]
+    assert "省略 750 字" in recent[1].content and "省略 4750 字" in recent[3].content
+
+
+def test_latest_message_excluding_batch(store, clock):
+    store.add_message("user", "旧", batch_id="a")
+    clock.advance(5)
+    store.add_message("user", "新", batch_id="b")
+    assert store.latest_message(exclude_batch="b").content == "旧"
+    assert store.latest_message(exclude_batch="a").content == "新"
+    assert store.latest_message() .content == "新"

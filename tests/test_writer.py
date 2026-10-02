@@ -145,3 +145,35 @@ async def test_string_ids_accepted(store, clock):
     result = await w.run()
     assert result.skipped == [] and store.get_memory(a.id).importance == 5
     assert store.get_memory(c.id).status == "done"
+
+
+async def test_large_backlog_processed_in_chunks(store, clock):
+    from mira.writer import WRITER_CHUNK_CHARS
+
+    for i in range(6):
+        store.add_message("user", f"{i}" * 2900)
+    w, llm = make_writer(store, clock, [{"ops": [], "episode": EPISODE}] * 6)
+    await w.run()
+    done = 6 - len(store.unprocessed_messages())
+    assert 0 < done < 6 and len(llm.calls[0]["messages"][0]["content"]) < WRITER_CHUNK_CHARS + 6000
+    while store.unprocessed_messages():
+        await w.run()
+    assert llm.calls[0]["max_tokens"] == 4000
+
+
+async def test_huge_message_truncated_in_prompt(store, clock):
+    store.add_message("user", "长" * 60000)
+    w, llm = make_writer(store, clock, [{"ops": [], "episode": EPISODE}])
+    await w.run()
+    prompt = llm.calls[0]["messages"][0]["content"]
+    assert "省略" in prompt and len(prompt) < 10000 and store.unprocessed_messages() == []
+
+
+async def test_transcript_dates_relative_to_message(store, clock):
+    clock.t = clock.t.replace(day=1, hour=23, minute=50)  # 10-01 周四
+    store.add_message("user", "明天面试")
+    clock.advance(2 * 86400)
+    w, llm = make_writer(store, clock, [{"ops": [], "episode": EPISODE}])
+    await w.run()
+    prompt = llm.calls[0]["messages"][0]["content"]
+    assert "[10-01 周四 23:50]" in prompt and "这条消息发出" in prompt

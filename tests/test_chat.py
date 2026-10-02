@@ -261,3 +261,19 @@ def test_salvage_stops_at_array_end():
 
     assert salvage_messages('{"messages": ["a", "b"], "mood_read": "x", "approach": "y') == ["a", "b"]
     assert salvage_messages('{"mood_read": "x"') == []
+
+
+async def test_last_chat_gap_survives_long_previous_message(mstore, mclock):
+    mstore.add_message("assistant", "你发吧", batch_id="older")
+    mstore.add_message("user", "长" * 20000, batch_id="old")  # 上一条就是超长粘贴
+    mstore.add_message("assistant", "嗯", batch_id="old")
+    mstore.add_message("user", "长" * 20000, batch_id="old2")
+    mstore.add_message("assistant", "看完了", batch_id="old2")
+    await mclock.advance(600)
+    engine, llm, _ = make(mstore, mclock, [reply("嗯")])
+    await engine.on_user_message("然后呢")
+    await mclock.advance(10)
+    text = final_user(llm.calls[0])
+    assert "距离上次聊天：刚刚还在聊" in text
+    assert "你发吧" in str(llm.calls[0]["messages"])  # 超长消息被截短，不会把更早的历史挤掉
+    assert sum(len(m["content"]) for m in llm.calls[0]["messages"]) < 20000

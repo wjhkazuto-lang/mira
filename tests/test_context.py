@@ -22,7 +22,8 @@ def build(store, clock, history=(), new=("今天好累",), memories=(), commitme
 def test_build_order_and_roles(store, clock):
     msgs = build(store, clock, history=[("user", "在吗"), ("assistant", "在")])
     assert [m["role"] for m in msgs] == ["system", "user", "assistant", "user"]
-    assert "我是 Mira" in msgs[0]["content"] and "【核心档案】\n他是程序员" in msgs[0]["content"]
+    assert "我是 Mira" in msgs[0]["content"] and "【核心档案】" in msgs[0]["content"]
+    assert "以下是你对对方的了解" in msgs[0]["content"] and msgs[0]["content"].endswith("他是程序员")
     last = msgs[-1]["content"]
     assert last.index("【背景】") < last.index("【新消息】") and last.endswith("今天好累")
     assert "现在：2026-10-02 周五 21:00" in last and "距离上次聊天：第一次聊天" in last
@@ -106,3 +107,8 @@ def test_render_and_missing_var():
 
 def test_persona_file_present():
     assert "Mira" in Path("persona.md").read_text(encoding="utf-8")
+
+
+def test_reflector_prompt_uses_third_person():
+    text = render("reflector", today="t", episodes="e", patterns="p", commitments="c", profile="x")
+    assert "第三人称" in text and "TA" in text

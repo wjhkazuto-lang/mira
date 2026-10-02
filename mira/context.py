@@ -59,7 +59,7 @@ def build_chat_messages(
 ) -> list[dict]:
     system = f"{persona}\n\n{rules}"
     if profile:
-        system += f"\n\n【核心档案】\n{profile}"
+        system += f"\n\n【核心档案】（以下是你对对方的了解，文中的\"TA\"或\"你\"都指对方，不是你自己）\n{profile}"
     out: list[dict] = [{"role": "system", "content": system}]
 
     def append(role: str, content: str) -> None:

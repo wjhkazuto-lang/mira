@@ -174,6 +174,7 @@ class ChatEngine:
         memories = [s.memory for s in self._retriever.search(query, self._settings.retrieve_top_k)]
         commitments = self._store.open_commitments()
         profile = self._store.current_profile()
+        previous = self._store.latest_message(exclude_batch=batch_id)
         messages = build_chat_messages(
             persona=self._persona,
             rules=self._rules,
@@ -183,7 +184,7 @@ class ChatEngine:
             memories=memories,
             commitments=commitments,
             now=self._now(),
-            last_chat_at=history[-1].created_at if history else None,
+            last_chat_at=previous.created_at if previous else None,
         )
         try:
             data = await self._llm.complete_json(

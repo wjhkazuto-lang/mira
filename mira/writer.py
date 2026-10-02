@@ -11,10 +11,13 @@ from mira.embedder import Embedder
 from mira.llm import LLM
 from mira.prompts import render
 from mira.retriever import Retriever
-from mira.store import Store
+from mira.store import Message, Store
+from mira.textutil import clip_text
 
 WRITER_TYPES = ("fact", "person", "commitment")
 WRITER_STATUSES = ("open", "done", "dropped")
+WRITER_CHUNK_CHARS = 12000  # 每次最多处理这么多字的对话，剩下的下次再处理
+WRITER_MESSAGE_CHARS = 2000  # 单条消息最多保留这么多字
 _WEEKDAYS = "一二三四五六日"
 
 
@@ -143,6 +146,12 @@ def validate_ops(ops: object, store: Store) -> tuple[list[dict], list[str]]:
     return valid, skipped
 
 
+def _line(m: Message) -> str:
+    when = f"{m.created_at.strftime('%m-%d')} 周{_WEEKDAYS[m.created_at.weekday()]} {m.created_at.strftime('%H:%M')}"
+    who = "我" if m.role == "user" else "Mira"
+    return f"[{when}] {who}：{clip_text(m.content, WRITER_MESSAGE_CHARS)}"
+
+
 class Writer:
     def __init__(
         self,
@@ -161,12 +170,10 @@ class Writer:
         self._now = now
 
     async def run(self) -> WriteResult | None:
-        msgs = self._store.unprocessed_messages()
+        msgs = self._next_chunk()
         if not msgs:
             return None
-        transcript = "\n".join(
-            f"[{m.created_at.strftime('%m-%d %H:%M')}] {'我' if m.role == 'user' else 'Mira'}：{m.content}" for m in msgs
-        )
+        transcript = "\n".join(_line(m) for m in msgs)
         related = [s.memory for s in self._retriever.search(transcript, 15, WRITER_TYPES)]
         seen = {m.id for m in related}
         related += [c for c in self._store.open_commitments() if c.id not in seen]
@@ -181,6 +188,7 @@ class Writer:
             purpose="writer",
             model=self._settings.background_model,
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=4000,
         )
 
         ops, skipped = validate_ops(data.get("ops"), self._store)
@@ -218,3 +226,15 @@ class Writer:
                 ).id
             self._store.mark_processed(source_ids)
         return WriteResult(applied=len(ops), skipped=skipped, episode_id=episode_id)
+
+    def _next_chunk(self) -> list[Message]:
+        """从最早的未处理消息开始，取不超过 WRITER_CHUNK_CHARS 字的一段（至少一条）。"""
+        chunk: list[Message] = []
+        size = 0
+        for m in self._store.unprocessed_messages():
+            cost = len(_line(m))
+            if chunk and size + cost > WRITER_CHUNK_CHARS:
+                break
+            chunk.append(m)
+            size += cost
+        return chunk
