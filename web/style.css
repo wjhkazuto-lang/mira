@@ -162,3 +162,42 @@ header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.02em
 .composer button { padding: 9px 18px; }
 
 .empty-hint { margin: auto; color: var(--muted); text-align: center; font-size: 14px; }
+
+/* ---------- 记忆管理页 ---------- */
+
+.page { max-width: 720px; margin: 0 auto; padding-bottom: 48px; }
+.page section { padding: 0 16px; }
+.page h2 { font-size: 14px; font-weight: 600; color: var(--muted); margin: 20px 0 8px; }
+
+.log-list { list-style: none; margin: 0; padding: 0; font-size: 13px; color: var(--muted); }
+.log-list li { padding: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-list b { color: var(--text); font-weight: 500; }
+
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 20px 0 12px; }
+.tabs button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
+.search { width: 100%; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 999px; padding: 7px 14px; margin-bottom: 12px; outline: none; }
+.search:focus { border-color: var(--accent); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+.card.superseded { opacity: 0.55; }
+.card .content { white-space: pre-wrap; word-break: break-word; }
+.card .meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.card .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.card .actions button, .card select { font-size: 12px; padding: 2px 10px; }
+.card select { font: inherit; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; }
+.badge { border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; }
+.detail { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--note-bg); font-size: 13px; }
+.detail p { margin: 2px 0; white-space: pre-wrap; word-break: break-word; }
+.detail .who { color: var(--muted); }
+
+textarea.edit { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--accent);
+  border-radius: 10px; padding: 8px 10px; resize: vertical; min-height: 70px; outline: none; }
+textarea.profile { min-height: 320px; }
+
+.empty { color: var(--muted); font-size: 14px; padding: 20px 0; text-align: center; }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg);
+  padding: 8px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+.toast.show { opacity: 1; }
