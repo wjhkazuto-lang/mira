@@ -72,7 +72,7 @@ def build_router(store: Store, retriever: Retriever, embedder: Embedder) -> APIR
         if m.type == "pattern":
             items = [store.get_memory(e) for e in m.evidence]
             out["evidence_items"] = [
-                {"id": e.id, "content": e.content, "created_at": e.created_at.isoformat()} for e in items if e
+                {"id": e.id, "content": e.content, "created_at": e.created_at.isoformat()} for e in items if e and e.type == "episode"
             ]
         return out
 

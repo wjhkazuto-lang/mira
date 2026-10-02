@@ -107,3 +107,14 @@ def test_memory_log_newest_first(store):
     a = add(store)
     store.update_memory(a.id, actor="writer", importance=5)
     assert [e.op for e in store.recent_log(limit=2)] == ["update", "add"]
+
+
+def test_deleted_ids_never_reused(store):
+    a = add(store)
+    b = add(store)
+    store.delete_memory(b.id, actor="user")
+    assert add(store).id > b.id
+
+
+def test_schema_version_set(store):
+    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 1

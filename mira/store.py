@@ -17,9 +17,12 @@ MEMORY_TYPES = ("fact", "person", "commitment", "pattern", "episode")
 COMMITMENT_STATUSES = ("open", "done", "dropped", "overdue")
 APPROACHES = ("comfort", "normal", "raise_issue", "crisis")
 
+SCHEMA_VERSION = 1
+
+# memories 用 AUTOINCREMENT：删掉的编号不会再被新记忆占用，否则模式的证据会指向不相关的内容
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, batch_id TEXT, created_at TEXT NOT NULL, meta_json TEXT NOT NULL DEFAULT '{}', processed INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS memories(id INTEGER PRIMARY KEY, type TEXT NOT NULL, content TEXT NOT NULL, subject TEXT, importance INTEGER NOT NULL DEFAULT 3, status TEXT, due_at TEXT, evidence_json TEXT NOT NULL DEFAULT '[]', source_message_ids_json TEXT NOT NULL DEFAULT '[]', user_locked INTEGER NOT NULL DEFAULT 0, superseded_by INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_recalled_at TEXT);
+CREATE TABLE IF NOT EXISTS memories(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, content TEXT NOT NULL, subject TEXT, importance INTEGER NOT NULL DEFAULT 3, status TEXT, due_at TEXT, evidence_json TEXT NOT NULL DEFAULT '[]', source_message_ids_json TEXT NOT NULL DEFAULT '[]', user_locked INTEGER NOT NULL DEFAULT 0, superseded_by INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_recalled_at TEXT);
 CREATE TABLE IF NOT EXISTS memory_vectors(memory_id INTEGER PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE, vector BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS core_profile(id INTEGER PRIMARY KEY, content TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS memory_log(id INTEGER PRIMARY KEY, memory_id INTEGER, actor TEXT NOT NULL, op TEXT NOT NULL, before_json TEXT, after_json TEXT, created_at TEXT NOT NULL);
@@ -141,6 +144,7 @@ class Store:
         if str(path) != ":memory:":
             self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(SCHEMA)
+        self._db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         self._depth = 0
 
     @contextmanager

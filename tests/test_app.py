@@ -155,3 +155,11 @@ def test_cross_site_mutation_rejected(client):
     r = client.post(f"/api/profile/rollback/{first['id']}", headers={"origin": "https://evil.example"})
     assert r.status_code == 403
     assert client.post(f"/api/profile/rollback/{first['id']}", headers={"origin": "http://localhost:8000"}).status_code == 200
+
+
+def test_evidence_items_only_episodes(client, app):
+    e1, e2 = add(app, "episode", "熬夜一"), add(app, "episode", "熬夜二")
+    f = add(app, "fact", "喜欢猫")
+    p = add(app, "pattern", "压力大时熬夜", evidence=[e1.id, e2.id, f.id])
+    detail = client.get(f"/api/memories/{p.id}").json()
+    assert [e["id"] for e in detail["evidence_items"]] == [e1.id, e2.id]
