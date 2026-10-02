@@ -76,6 +76,8 @@ class ChatEngine:
         self._sleep = sleep
         self._outboxes: list[Send] = []
         self._task: asyncio.Task | None = None
+        # 收消息和重试都要先取消旧任务再开新任务，中间有 await；加锁防止两路请求交错，产生重复回复
+        self._lock = asyncio.Lock()
         # 当前"打开"的批次：发出第一个气泡时关闭
         self._batch_id: str | None = None
         self._batch_started_at: datetime | None = None
@@ -105,6 +107,10 @@ class ChatEngine:
         text = text.strip()
         if not text:
             return None
+        async with self._lock:
+            return await self._accept_message(text)
+
+    async def _accept_message(self, text: str) -> Message:
         now = self._now()
         was_running = await self._cancel_task()
         if self._batch_id is None:
@@ -121,6 +127,10 @@ class ChatEngine:
         self._last_typing_at = self._now()
 
     async def retry(self) -> None:
+        async with self._lock:
+            await self._retry()
+
+    async def _retry(self) -> None:
         batch_id = self._store.last_unanswered_batch()
         if batch_id is None:
             return

@@ -277,3 +277,25 @@ async def test_last_chat_gap_survives_long_previous_message(mstore, mclock):
     assert "距离上次聊天：刚刚还在聊" in text
     assert "你发吧" in str(llm.calls[0]["messages"])  # 超长消息被截短，不会把更早的历史挤掉
     assert sum(len(m["content"]) for m in llm.calls[0]["messages"]) < 20000
+
+
+async def test_concurrent_messages_one_reply(mstore, mclock):
+    import asyncio
+
+    engine, llm, _ = make(mstore, mclock, [reply("嗯"), reply("多余的")])
+    await engine.on_user_message("第一条")
+    await mclock.advance(1)
+    await asyncio.gather(engine.on_user_message("A 页"), engine.on_user_message("B 页"))
+    await mclock.advance(20)
+    assert len(llm.calls) == 1 and [m.content for m in assistants(mstore)] == ["嗯"]
+    assert final_user(llm.calls[0]).endswith("第一条\nA 页\nB 页")
+
+
+async def test_concurrent_retry_and_message_one_reply(mstore, mclock):
+    import asyncio
+
+    mstore.add_message("user", "上次没回", batch_id="old")
+    engine, llm, _ = make(mstore, mclock, [reply("嗯"), reply("多余的")])
+    await asyncio.gather(engine.retry(), engine.on_user_message("在吗"))
+    await mclock.advance(20)
+    assert len(llm.calls) == 1
