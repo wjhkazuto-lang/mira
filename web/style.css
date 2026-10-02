@@ -240,6 +240,7 @@ body.has-bg {
 }
 /* 视频背景：铺满窗口，上面盖一层和配色一致的薄纱 */
 #bg-video { display: none; }
+body.has-video { background: transparent; }  /* body 的底色会盖住视频；底色交给 html 来铺 */
 body.has-video #bg-video {
   display: block; position: fixed; inset: 0; width: 100%; height: 100%;
   object-fit: cover; z-index: -2;
