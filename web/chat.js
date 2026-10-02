@@ -15,6 +15,7 @@
   let notice = null;        // {text, retry: bool}
   let ws = null;
   let reconnectAttempt = 0;
+  let everConnected = false;
   let lastTypingSent = 0;
   let loadingOlder = false;
   let noMoreHistory = false;
@@ -152,6 +153,9 @@
     ws.onopen = () => {
       reconnectAttempt = 0;
       setConnected(true);
+      // 断线期间她可能已经回复了（回复照样会存下来），重连后补上
+      if (everConnected) loadInitial().catch(() => {});
+      everConnected = true;
     };
     ws.onmessage = (e) => {
       const ev = JSON.parse(e.data);
