@@ -12,6 +12,7 @@ dependencies = [
     "fastembed",
     "numpy",
     "python-dotenv",
+    "pywebview>=6.2.1",
 ]
 
 [dependency-groups]

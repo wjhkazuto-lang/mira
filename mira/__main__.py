@@ -3,6 +3,8 @@
 import logging
 import socket
 import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import uvicorn
 
@@ -20,8 +22,24 @@ def fail(message: str) -> None:
     sys.exit(1)
 
 
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+
+def setup_logging(log_file: Path | None) -> None:
+    """None：输出到终端；给了路径：写到文件，满 1MB 轮换，留 3 份旧的。"""
+    if log_file is None:
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+        return
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    root = logging.getLogger()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    setup_logging(None)
     try:
         settings = load_settings()
     except ConfigError as e:
