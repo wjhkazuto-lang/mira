@@ -256,13 +256,26 @@ async def test_second_op_on_same_id_skipped(store, clock):
     assert store.get_memory(m.id).content == "喜欢猫"
 
 
-async def test_update_then_set_status_same_id_skipped(store, clock):
+async def test_update_then_set_status_same_id_both_apply(store, clock):
     c = mem(store, "commitment", "改简历", status="open")
     chat(store)
     w, _ = make_writer(store, clock, [{"ops": [
-        {"op": "update", "id": c.id, "importance": 5},
+        {"op": "update", "id": c.id, "content": "改简历并投三家"},
+        {"op": "set_status", "id": c.id, "status": "done"},
+    ], "episode": EPISODE}])
+    result = await w.run()
+    got = store.get_memory(c.id)
+    assert result.applied == 2 and got.content == "改简历并投三家" and got.status == "done"
+    assert not any("同一批里已经改过" in s for s in result.skipped)
+
+
+async def test_set_status_after_supersede_same_id_skipped(store, clock):
+    c = mem(store, "commitment", "改简历", status="open")
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [
+        {"op": "supersede", "id": c.id, "new": {"type": "commitment", "content": "改简历并投递"}},
         {"op": "set_status", "id": c.id, "status": "done"},
     ], "episode": EPISODE}])
     result = await w.run()
     assert result.applied == 1 and store.get_memory(c.id).status == "open"
-    assert any("同一批里已经改过" in s for s in result.skipped)
+    assert any(f"同一批里已经改过 #{c.id}" in s for s in result.skipped)

@@ -95,11 +95,12 @@ def _editable(store: Store, id) -> tuple[object, str | None]:
 def validate_ops(ops: object, store: Store) -> tuple[list[dict], list[str]]:
     valid: list[dict] = []
     skipped: list[str] = []
-    touched: set[int] = set()  # 这一批里已经改过的记忆，后面对同一条的操作跳过
+    touched: set[int] = set()  # 这一批里已经被替换的记忆，后面对同一条的操作跳过（避免孤儿）
     for op in ops if isinstance(ops, list) else []:
         kind = op.get("op") if isinstance(op, dict) else None
-        if kind in ("update", "supersede", "set_status") and parse_id(op.get("id")) in touched:
-            skipped.append(f"同一批里已经改过 #{parse_id(op.get('id'))}，跳过重复的操作")
+        pid = parse_id(op.get("id")) if kind in ("update", "supersede", "set_status") else None
+        if pid is not None and pid in touched:
+            skipped.append(f"同一批里已经改过 #{pid}，跳过重复的操作")
             continue
         if kind == "add":
             fields, why = _new_fields(op)
@@ -138,9 +139,7 @@ def validate_ops(ops: object, store: Store) -> tuple[list[dict], list[str]]:
                 skipped.append(f"更新 #{m.id} 没有任何改动")
             else:
                 valid.append({"op": "update", "id": m.id, "fields": fields})
-                touched.add(m.id)
         elif kind == "set_status":
-            pid = parse_id(op.get("id"))
             m = store.get_memory(pid) if pid is not None else None
             if m is None or m.type not in TRACKED_TYPES:
                 skipped.append(f"#{op.get('id')} 不是存在的目标或承诺")
@@ -148,7 +147,6 @@ def validate_ops(ops: object, store: Store) -> tuple[list[dict], list[str]]:
                 skipped.append(f"状态 {op.get('status')!r} 不合法")
             else:
                 valid.append({"op": "set_status", "id": m.id, "status": op["status"]})
-                touched.add(m.id)
         else:
             skipped.append(f"未知操作 {kind!r}")
     return valid, skipped
