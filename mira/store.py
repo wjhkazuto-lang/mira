@@ -339,7 +339,7 @@ class Store:
             if before is None:
                 raise KeyError(id)
             for (old_id,) in self._db.execute("SELECT id FROM memories WHERE superseded_by=?", (id,)).fetchall():
-                self.update_memory(old_id, actor=actor, superseded_by=None)  # 被它取代的旧记忆恢复
+                self.update_memory(old_id, actor=actor, superseded_by=before.superseded_by)  # 旧记忆恢复；链条中间被删则接到后一条
             self._db.execute("DELETE FROM memories WHERE id=?", (id,))
             self._log(id, actor, "delete", _snapshot(before), None)
 

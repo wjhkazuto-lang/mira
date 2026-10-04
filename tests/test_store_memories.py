@@ -154,9 +154,27 @@ def test_delete_restores_memories_it_superseded(store):
     assert entry.actor == "user" and entry.op == "update"
 
 
-def test_delete_rolls_back_restore_on_failure(store):
+def test_delete_middle_of_chain_relinks(store):
+    a, b, c = add(store, content="A"), add(store, content="B"), add(store, content="C")
+    store.update_memory(a.id, actor="writer", superseded_by=b.id)
+    store.update_memory(b.id, actor="writer", superseded_by=c.id)
+    store.delete_memory(b.id, actor="user")
+    assert store.get_memory(a.id).superseded_by == c.id
+    assert store.get_memory(c.id).superseded_by is None
+
+
+def test_delete_rolls_back_restore_on_failure(store, monkeypatch):
     old, new = add(store, content="喜欢猫"), add(store, content="喜欢狗")
     store.update_memory(old.id, actor="writer", superseded_by=new.id)
-    with pytest.raises(KeyError):
-        store.delete_memory(999, actor="user")
+    real_log = store._log
+
+    def failing(id, actor, op, *a):
+        if op == "delete":
+            raise RuntimeError("boom")
+        return real_log(id, actor, op, *a)
+
+    monkeypatch.setattr(store, "_log", failing)
+    with pytest.raises(RuntimeError):
+        store.delete_memory(new.id, actor="user")
     assert store.get_memory(old.id).superseded_by == new.id
+    assert store.get_memory(new.id) is not None

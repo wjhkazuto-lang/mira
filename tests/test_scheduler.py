@@ -346,9 +346,13 @@ async def test_no_4am_reflect_within_12h_of_startup_run(store, clock):
     s, _, r = make(store, clock)
     await s.startup()
     assert r.runs == 1
-    at(clock, "2026-10-04T04:05:00+08:00")
+    for t in ("2026-10-04T04:05:00+08:00", "2026-10-04T10:05:00+08:00", "2026-10-04T23:00:00+08:00"):
+        at(clock, t)
+        await s.tick()
+        assert r.runs == 1
+    at(clock, "2026-10-05T04:00:00+08:00")
     await s.tick()
-    assert r.runs == 1
+    assert r.runs == 2
 
 
 async def test_4am_reflect_after_12h_gap(store, clock):
