@@ -1,5 +1,6 @@
 import struct
 import sys
+import zlib
 
 import pytest
 
@@ -34,3 +35,18 @@ def test_rounded_icon_false_on_bad_input(tmp_path):
     bad.write_text("not an image")
     assert rounded_icon_png(bad, tmp_path / "r.png") is False
     assert rounded_icon_png(tmp_path / "missing.png", tmp_path / "r.png") is False
+
+
+def test_transparent_source_gets_opaque_background(tmp_path):
+    # 右半边全透明的头像：圆角内仍应不透明（垫了底色），四角仍透明
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+
+    n = 64
+    row = b"\x00" + (b"\xc2\xa9\x74\xff" * (n // 2) + b"\x00\x00\x00\x00" * (n // 2))
+    src, out = tmp_path / "half.png", tmp_path / "r.png"
+    src.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", n, n, 8, 6, 0, 0, 0))
+                    + chunk(b"IDAT", zlib.compress(row * n)) + chunk(b"IEND", b""))
+    assert rounded_icon_png(src, out) is True
+    assert _alpha(out, 880, 512) == 1
+    assert _alpha(out, 5, 5) == 0

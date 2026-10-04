@@ -9,6 +9,7 @@ def rounded_icon_png(src: Path, out: Path, size: int = 1024) -> bool:
         from AppKit import (
             NSBezierPath,
             NSBitmapImageRep,
+            NSColor,
             NSCompositingOperationSourceOver,
             NSGraphicsContext,
             NSImage,
@@ -16,6 +17,7 @@ def rounded_icon_png(src: Path, out: Path, size: int = 1024) -> bool:
             NSPNGFileType,
         )
 
+        _BG = NSColor.colorWithSRGBRed_green_blue_alpha_(0xF5 / 255, 0xF2 / 255, 0xE9 / 255, 1.0)
         img = NSImage.alloc().initWithContentsOfFile_(str(src))
         if img is None:
             return False
@@ -32,8 +34,11 @@ def rounded_icon_png(src: Path, out: Path, size: int = 1024) -> bool:
         NSGraphicsContext.saveGraphicsState()
         try:
             NSGraphicsContext.setCurrentContext_(NSGraphicsContext.graphicsContextWithBitmapImageRep_(rep))
-            NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-                NSMakeRect(inset, inset, body, body), radius, radius).addClip()
+            path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+                NSMakeRect(inset, inset, body, body), radius, radius)
+            path.addClip()
+            _BG.setFill()  # 先垫米白底（style.css 的 --bg），头像透明处才不会露洞
+            path.fill()
             side = min(w, h)  # 居中裁成正方形（aspect-fill）
             crop = NSMakeRect((w - side) / 2, (h - side) / 2, side, side)
             img.drawInRect_fromRect_operation_fraction_(
