@@ -5,7 +5,7 @@ import zlib
 import pytest
 
 from mira.icon import rounded_icon_png
-from tests.test_make_app import _png
+from tests.conftest import make_png
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="需要 AppKit")
 
@@ -19,7 +19,7 @@ def _alpha(path, x, y) -> float:
 
 def test_rounded_icon_shape(tmp_path):
     src, out = tmp_path / "a.png", tmp_path / "r.png"
-    _png(src)
+    make_png(src)
     assert rounded_icon_png(src, out) is True
     data = out.read_bytes()
     assert data[:8] == b"\x89PNG\r\n\x1a\n"
@@ -66,6 +66,6 @@ def test_false_when_graphics_context_unavailable(tmp_path, monkeypatch):
 
     monkeypatch.setattr(AppKit, "NSGraphicsContext", NoContext)
     src, out = tmp_path / "a.png", tmp_path / "r.png"
-    _png(src)
+    make_png(src)
     assert rounded_icon_png(src, out) is False
     assert not out.exists()  # 不写空白图

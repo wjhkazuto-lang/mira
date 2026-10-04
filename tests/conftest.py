@@ -1,5 +1,8 @@
 import asyncio
+import struct
+import zlib
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -76,3 +79,15 @@ def mclock():
 @pytest.fixture
 def mstore(mclock):
     return Store(":memory:", now=mclock.now)
+
+
+def make_png(path: Path, size: int = 64) -> None:
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+
+    row = b"\x00" + b"\xc2\xa9\x74" * size
+    raw = zlib.compress(row * size)
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", raw) + chunk(b"IEND", b"")
+    )

@@ -1,5 +1,6 @@
 """生成 macOS 的 Mira.app 启动壳：uv run python -m mira.make_app"""
 
+import errno
 import plistlib
 import shlex
 import shutil
@@ -58,6 +59,7 @@ def make_icns(png: Path, out: Path) -> bool:
                            check=True, capture_output=True)
         return out.exists() and out.stat().st_size > 0
     except Exception:
+        out.unlink(missing_ok=True)  # 别留下写了一半的图标
         return False
 
 
@@ -70,7 +72,9 @@ def _is_our_app(dest: Path) -> bool:
 
 
 def build_app(dest: Path, project_root: Path, uv_path: Path, icon_png: Path | None) -> Path:
-    if dest.exists() or dest.is_symlink():
+    if dest.is_symlink():
+        raise FileExistsError("目标位置是一个快捷方式（符号链接），为安全起见不会覆盖。请把它删掉后重新运行。")
+    if dest.exists():
         if not _is_our_app(dest):
             raise FileExistsError(f"{dest} 已经存在，而且不是 Mira 生成的，没有覆盖。请把它改名或移到废纸篓后重新运行。")
         shutil.rmtree(dest)
@@ -82,9 +86,18 @@ def build_app(dest: Path, project_root: Path, uv_path: Path, icon_png: Path | No
     exe.write_text(launcher_script(project_root, uv_path), encoding="utf-8")
     exe.chmod(0o755)
     if icon_png is not None:
-        make_icns(icon_png, resources / "Mira.icns")  # 图标失败不影响 app 本身
+        if not make_icns(icon_png, resources / "Mira.icns"):  # 图标失败不影响 app 本身
+            print("图标没有生成成功，App 会使用默认图标。")
     dest.touch()  # 让 Finder 刷新图标
     return dest
+
+
+def _os_error_text(e: OSError) -> str:
+    if e.errno == errno.ENOSPC:
+        return "磁盘空间不足"
+    if e.errno in (errno.EACCES, errno.EPERM):
+        return "没有权限"
+    return str(e)
 
 
 def main() -> None:
@@ -101,6 +114,9 @@ def main() -> None:
                          avatar if avatar.exists() else None)
     except FileExistsError as e:
         print(e)
+        sys.exit(1)
+    except OSError as e:
+        print(f"生成 Mira.app 失败：{_os_error_text(e)}")
         sys.exit(1)
     print(f"已生成 {dest}，可以拖进 Dock")
     try:

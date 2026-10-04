@@ -1,26 +1,13 @@
 import plistlib
-import struct
 import subprocess
 import sys
-import zlib
 from pathlib import Path
 
 import pytest
 
 from mira import make_app
 from mira.make_app import BUNDLE_ID, build_app, launcher_script, make_icns
-
-
-def _png(path: Path, size: int = 64) -> None:
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
-
-    row = b"\x00" + b"\xc2\xa9\x74" * size
-    raw = zlib.compress(row * size)
-    path.write_bytes(
-        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
-        + chunk(b"IDAT", raw) + chunk(b"IEND", b"")
-    )
+from tests.conftest import make_png
 
 
 def test_build_app_structure(tmp_path):
@@ -140,7 +127,7 @@ def test_make_icns_returns_false_on_bad_png(tmp_path):
 @pytest.mark.skipif(sys.platform != "darwin", reason="需要 sips/iconutil")
 def test_make_icns_from_real_png(tmp_path):
     png = tmp_path / "a.png"
-    _png(png)
+    make_png(png)
     out = tmp_path / "Mira.icns"
     assert make_icns(png, out) is True
     assert out.stat().st_size > 0
@@ -149,7 +136,7 @@ def test_make_icns_from_real_png(tmp_path):
 @pytest.mark.skipif(sys.platform != "darwin", reason="需要 sips/iconutil")
 def test_build_app_with_icon(tmp_path):
     png = tmp_path / "a.png"
-    _png(png)
+    make_png(png)
     app = build_app(tmp_path / "Mira.app", tmp_path, Path("/u/uv"), png)
     assert (app / "Contents/Resources/Mira.icns").stat().st_size > 0
 
@@ -171,3 +158,78 @@ def test_main_reveals_app_in_finder(tmp_path, monkeypatch):
     dest = tmp_path / "Applications" / "Mira.app"
     assert (dest / "Contents/MacOS/Mira").exists()
     assert calls == [["open", "-R", str(dest)]]
+
+
+def test_refuses_symlink_dest(tmp_path):
+    real = build_app(tmp_path / "real.app", tmp_path, Path("/u/uv"), None)
+    link = tmp_path / "Mira.app"
+    link.symlink_to(real)  # 即使指向我们自己的 app 也不覆盖
+    with pytest.raises(FileExistsError) as e:
+        build_app(link, tmp_path, Path("/u/uv"), None)
+    assert "符号链接" in str(e.value)
+    assert link.is_symlink() and (real / "Contents/Info.plist").exists()
+
+
+def _main_env(tmp_path, monkeypatch, avatar=False):
+    uv = tmp_path / "uv"
+    uv.write_text("")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(make_app, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(make_app.shutil, "which", lambda name: str(uv))
+    monkeypatch.setattr(make_app.subprocess, "run", lambda cmd, **kw: None)
+    if avatar:
+        (tmp_path / "theme/mira").mkdir(parents=True)
+        (tmp_path / "theme/mira/avatar.png").write_bytes(b"x")
+
+
+def test_main_reports_oserror_in_chinese(tmp_path, monkeypatch, capsys):
+    import errno
+    _main_env(tmp_path, monkeypatch)
+
+    def boom(*a, **k):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(make_app, "build_app", boom)
+    with pytest.raises(SystemExit) as e:
+        make_app.main()
+    assert e.value.code == 1
+    out = capsys.readouterr().out
+    assert "生成 Mira.app 失败" in out and "磁盘空间不足" in out
+
+
+def test_main_oserror_permission(tmp_path, monkeypatch, capsys):
+    import errno
+    _main_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(make_app, "build_app", lambda *a, **k: (_ for _ in ()).throw(PermissionError(errno.EACCES, "denied")))
+    with pytest.raises(SystemExit):
+        make_app.main()
+    assert "没有权限" in capsys.readouterr().out
+
+
+def test_main_notes_icon_failure(tmp_path, monkeypatch, capsys):
+    _main_env(tmp_path, monkeypatch, avatar=True)
+    monkeypatch.setattr(make_app, "make_icns", lambda png, out: False)
+    make_app.main()
+    out = capsys.readouterr().out
+    assert "图标没有生成成功，App 会使用默认图标。" in out
+    assert (tmp_path / "Applications/Mira.app/Contents/MacOS/Mira").exists()
+
+
+def test_main_no_icon_note_without_avatar(tmp_path, monkeypatch, capsys):
+    _main_env(tmp_path, monkeypatch)
+    make_app.main()
+    assert "图标没有生成成功" not in capsys.readouterr().out
+
+
+def test_make_icns_removes_partial_output(tmp_path, monkeypatch):
+    out = tmp_path / "Mira.icns"
+
+    def fake_run(cmd, **kw):
+        if cmd[0] == "iconutil":
+            out.write_bytes(b"partial")
+            raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(make_app, "rounded_icon_png", lambda a, b: False)
+    monkeypatch.setattr(make_app.subprocess, "run", fake_run)
+    assert make_icns(tmp_path / "a.png", out) is False
+    assert not out.exists()
