@@ -83,7 +83,7 @@ MIRA_FAKE=1 DB_PATH=data/dev.db uv run python -m mira
   1. 先退出 Mira：关掉 App 窗口；如果是在终端里启动的，要在那个终端按 Ctrl+C（关 App 窗口停不掉终端里的 Mira）
   2. 把现在的 `data/mira.db` 改名为 `mira.db.old`（先留着，别直接覆盖）
   3. 如果 `data/` 里有 `mira.db-wal`、`mira.db-shm` 这两个文件，把它们删掉——一定要删，否则恢复不会生效
-  4. 把 `data/backups/` 里想要的那个备份（文件名像 `mira-20261004-153000.db`）复制到 `data/`，改名为 `mira.db`
+  4. 把 `data/backups/` 里想要的那个备份（文件名像 `mira-20261004-153000.db`；点"立即备份"留下的 `mira-manual-…db` 也一样）复制到 `data/`，改名为 `mira.db`
   5. 重新启动 Mira
 - **选人设 / 改人设**：见下面的"人设"一节
 - **二次元界面**：在项目根目录建一个 `theme/` 文件夹（不会被 git 提交）：
