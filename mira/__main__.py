@@ -1,6 +1,7 @@
 """启动 Mira：uv run python -m mira"""
 
 import logging
+import os
 import socket
 import sys
 from logging.handlers import RotatingFileHandler
@@ -30,12 +31,15 @@ def setup_logging(log_file: Path | None) -> None:
     if log_file is None:
         logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
         return
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    path = os.path.abspath(log_file)
+    if any(isinstance(h, RotatingFileHandler) and h.baseFilename == path for h in root.handlers):
+        return  # 已经在写这个文件了，别重复加（否则每行日志写两遍）
     log_file.parent.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
     handler.setFormatter(logging.Formatter(LOG_FORMAT))
-    root = logging.getLogger()
     root.addHandler(handler)
-    root.setLevel(logging.INFO)
 
 
 def main() -> None:

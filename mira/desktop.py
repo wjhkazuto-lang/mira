@@ -27,7 +27,8 @@ def probe_port(host: str, port: int) -> Literal["free", "mira", "other"]:
         return "free"
     try:
         with urllib.request.urlopen(f"http://{host}:{port}/api/memory-status", timeout=2) as resp:
-            if resp.status == 200 and "state" in json.loads(resp.read()):
+            body = json.loads(resp.read())
+            if resp.status == 200 and isinstance(body, dict) and "state" in body:
                 return "mira"
     except Exception:
         pass
@@ -106,7 +107,7 @@ class ServerThread(threading.Thread):
             self.error = str(e)
         except FileNotFoundError as e:
             log.exception("服务启动失败")
-            self.error = f"启动失败：找不到文件：{e.filename}"
+            self.error = f"启动失败：找不到文件：{e.filename}" if e.filename else "启动失败：找不到需要的文件"
         except SystemExit:  # uvicorn 绑定端口失败时会 sys.exit
             log.exception("服务没能启动")
             self.error = f"启动失败：服务没能在端口 {self.settings.port} 上开始运行，详情见日志。"
@@ -218,27 +219,71 @@ def _install_window_chrome(window) -> None:
 
 
 _observers: list = []  # 留住引用，免得被回收
+_quit_observer_class = None  # Objective-C 类只能定义一次
 
 
-def _on_quit(window, server: ServerThread | None) -> None:
-    """⌘Q 会直接结束进程、webview.start() 不会返回，所以在退出通知里先把服务停好；
-    kill（SIGTERM）时关掉窗口，走正常的收尾流程。"""
-    try:
-        import signal
-
-        from Foundation import NSNotificationCenter, NSObject
-        from PyObjCTools import MachSignals
-
-        MachSignals.signal(signal.SIGTERM, lambda _signum: window.destroy())
-        if server is None:
-            return
+def _quit_observer(server: ServerThread):
+    global _quit_observer_class
+    if _quit_observer_class is None:
+        from Foundation import NSObject
 
         class QuitObserver(NSObject):
             def appWillTerminate_(self, _note):
                 log.info("退出 Mira（⌘Q）")
-                server.stop()
+                self.server.stop(timeout=3)  # 只等 3 秒，免得点了退出界面还卡着
 
-        observer = QuitObserver.alloc().init()
+        _quit_observer_class = QuitObserver
+    observer = _quit_observer_class.alloc().init()
+    observer.server = server
+    return observer
+
+
+def _signal_handler(window):
+    """kill（SIGTERM）或终端里 Ctrl+C（SIGINT）时关掉窗口。
+    窗口还没显示时 destroy 会先卡 20 秒再报错，所以只记下来，等显示了马上关。"""
+    lock = threading.Lock()
+    state = {"wanted": False, "closed": False}
+
+    def close() -> None:
+        with lock:
+            if state["closed"]:
+                return
+            state["closed"] = True
+        window.destroy()
+
+    def on_shown() -> None:
+        if state["wanted"]:
+            close()
+
+    def handle(_signum) -> None:
+        state["wanted"] = True
+        if window.events.shown.is_set():
+            close()
+        else:
+            log.info("窗口还没显示，显示后马上关掉")
+
+    window.events.shown += on_shown
+    return handle
+
+
+def _on_quit(window, server: ServerThread | None) -> None:
+    """⌘Q 会直接结束进程、webview.start() 不会返回，所以在退出通知里先把服务停好；
+    kill（SIGTERM）或 Ctrl+C 时关掉窗口，走正常的收尾流程。"""
+    try:
+        import signal
+
+        from Foundation import NSNotificationCenter
+        from PyObjCTools import AppHelper, MachSignals
+
+        handle = _signal_handler(window)
+        MachSignals.signal(signal.SIGTERM, handle)
+        MachSignals.signal(signal.SIGINT, handle)
+        # pywebview 开始事件循环前会把 Ctrl+C 换成它自己的处理，等事件循环跑起来再装回来
+        window.events.shown += lambda: AppHelper.callAfter(MachSignals.signal, signal.SIGINT, handle)
+        if server is None:
+            return
+
+        observer = _quit_observer(server)
         _observers.append(observer)
         NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
             observer, "appWillTerminate:", "NSApplicationWillTerminateNotification", None
@@ -286,15 +331,14 @@ def main() -> None:
 
 
 def _run() -> None:
+    log_file = PROJECT_ROOT / "data" / "logs" / "mira.log"  # 固定在这里，和启动器提示、README 一致
     try:
         settings = load_settings()
     except ConfigError as e:
-        log_file = PROJECT_ROOT / "data" / "logs" / "mira.log"
         setup_logging(log_file)
         log.error("配置出错：%s", e)
         _open_window(html_page=error_page(str(e), log_file), log_file=log_file)
         return
-    log_file = settings.db_path.parent / "logs" / "mira.log"
     setup_logging(log_file)
     icon = settings.theme_dir / "mira" / "avatar.png"
     url = f"http://{settings.host}:{settings.port}/"

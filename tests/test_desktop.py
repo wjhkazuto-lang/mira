@@ -71,6 +71,29 @@ def test_probe_other_program():
         t.join(5)
 
 
+def test_probe_rejects_json_string_state():
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b'"state"'  # JSON 字符串里也“包含” state，但不是 Mira
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    httpd = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    try:
+        assert probe_port("127.0.0.1", httpd.server_address[1]) == "other"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        t.join(5)
+
+
 def test_message_page_has_drag_strip():
     # 加载页、出错页也能拖动窗口（标题栏已合进页面）
     page = message_page("Mira 正在醒来…", "稍等")
@@ -105,6 +128,37 @@ def test_server_thread_starts_and_stops(tmp_path, caplog):
     assert not thread.is_alive()
     assert probe_port("127.0.0.1", settings.port) == "free"
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def test_server_thread_file_not_found_without_filename(tmp_path, monkeypatch):
+    import mira.main
+
+    def boom(settings):
+        raise FileNotFoundError("缺了什么")
+
+    monkeypatch.setattr(mira.main, "create_app", boom)
+    thread = ServerThread(fake_settings(tmp_path))
+    thread.start()
+    thread.join(10)
+    assert thread.error == "启动失败：找不到需要的文件"  # 不会出现“找不到文件：None”
+
+
+def test_setup_logging_is_idempotent(tmp_path):
+    from logging.handlers import RotatingFileHandler
+
+    root = logging.getLogger()
+    before = list(root.handlers)
+    log_file = tmp_path / "logs" / "mira.log"
+    try:
+        setup_logging(log_file)
+        setup_logging(log_file)
+        added = [h for h in root.handlers if h not in before and isinstance(h, RotatingFileHandler)]
+        assert len(added) == 1
+    finally:
+        for h in list(root.handlers):
+            if h not in before:
+                root.removeHandler(h)
+                h.close()
 
 
 def test_setup_logging_writes_file(tmp_path):
@@ -173,7 +227,17 @@ def test_port_taken_page_shows_log_path(tmp_path, no_gui, monkeypatch):
     monkeypatch.setattr(desktop, "load_settings", lambda: settings)
     monkeypatch.setattr(desktop, "probe_port", lambda h, p: "other")
     desktop.main()
-    assert f"日志在：{tmp_path / 'logs' / 'mira.log'}" in no_gui[-1]["html_page"]
+    log_file = desktop.PROJECT_ROOT / "data" / "logs" / "mira.log"  # 和启动器提示、README 说的位置一致
+    assert no_gui[0] == {"log": log_file}
+    assert f"日志在：{log_file}" in no_gui[-1]["html_page"]
+
+
+def test_log_location_same_for_custom_db_path(tmp_path, no_gui, monkeypatch):
+    settings = fake_settings(tmp_path, DB_PATH=str(tmp_path / "别处" / "x.db"))
+    monkeypatch.setattr(desktop, "load_settings", lambda: settings)
+    monkeypatch.setattr(desktop, "probe_port", lambda h, p: "mira")
+    desktop.main()
+    assert no_gui[0] == {"log": desktop.PROJECT_ROOT / "data" / "logs" / "mira.log"}
 
 
 def test_main_returns_normally_when_window_closed(tmp_path, no_gui, monkeypatch):
@@ -320,3 +384,155 @@ def test_install_window_chrome_registers_handlers(monkeypatch):
     assert len(window.events.before_show.items) == 1 and len(window.events.loaded.items) == 1
     window.events.before_show.items[0]()  # 测试跑在主线程上，直接生效
     assert applied == ["ns"]
+
+
+def make_hooked_window(native="ns"):
+    class Hook:
+        def __init__(self):
+            self.items = []
+
+        def __iadd__(self, fn):
+            self.items.append(fn)
+            return self
+
+    window = type("W", (), {})()
+    window.native = native
+    window.events = type("E", (), {})()
+    window.events.before_show, window.events.loaded = Hook(), Hook()
+    return window
+
+
+def test_loaded_handler_applies_chrome_on_main_thread(monkeypatch):
+    from PyObjCTools import AppHelper
+
+    applied = []
+    monkeypatch.setattr(desktop, "_apply_window_chrome", lambda native: applied.append(native))
+    monkeypatch.setattr(AppHelper, "callAfter", lambda fn, *a, **kw: fn(*a, **kw))  # 不进事件循环，直接调用
+    window = make_hooked_window()
+    desktop._install_window_chrome(window)
+    window.events.loaded.items[0]()
+    assert applied == ["ns"]
+
+
+def test_chrome_skipped_when_native_window_missing(monkeypatch):
+    from PyObjCTools import AppHelper
+
+    applied = []
+    monkeypatch.setattr(desktop, "_apply_window_chrome", lambda native: applied.append(native))
+    monkeypatch.setattr(AppHelper, "callAfter", lambda fn, *a, **kw: fn(*a, **kw))
+    window = make_hooked_window(native=None)
+    desktop._install_window_chrome(window)
+    window.events.before_show.items[0]()
+    window.events.loaded.items[0]()
+    assert applied == []
+
+
+class SignalWindow:
+    """假窗口：shown 是真的 threading.Event，destroy 只记次数。"""
+
+    def __init__(self):
+        self.shown = threading.Event()
+        self.on_shown = []
+        self.destroyed = 0
+
+        class Shown:
+            def __iadd__(hook, fn):
+                self.on_shown.append(fn)
+                return hook
+
+            def is_set(hook):
+                return self.shown.is_set()
+
+        self.events = type("E", (), {})()
+        self.events.shown = Shown()
+
+    def show(self):
+        self.shown.set()
+        for fn in self.on_shown:
+            fn()
+
+    def destroy(self):
+        assert self.shown.is_set(), "窗口还没显示时 destroy 会卡 20 秒再报错"
+        self.destroyed += 1
+
+
+def test_signal_after_shown_closes_window():
+    window = SignalWindow()
+    handle = desktop._signal_handler(window)
+    window.show()
+    handle(15)
+    assert window.destroyed == 1
+
+
+def test_signal_before_shown_closes_once_shown():
+    window = SignalWindow()
+    handle = desktop._signal_handler(window)
+    handle(15)  # 不能卡住，也不能抛异常
+    assert window.destroyed == 0
+    window.show()
+    assert window.destroyed == 1
+    handle(2)  # 已经在关了，不重复关
+    assert window.destroyed == 1
+
+
+def test_window_shown_without_signal_stays_open():
+    window = SignalWindow()
+    desktop._signal_handler(window)
+    window.show()
+    assert window.destroyed == 0
+
+
+@pytest.fixture
+def fake_cocoa(monkeypatch):
+    """不碰真的信号和通知中心：记下注册了什么。"""
+    import Foundation
+    from PyObjCTools import AppHelper, MachSignals
+
+    got = {"signals": {}, "observers": []}
+    monkeypatch.setattr(MachSignals, "signal", lambda sig, fn: got["signals"].__setitem__(sig, fn))
+    monkeypatch.setattr(AppHelper, "callAfter", lambda fn, *a, **kw: fn(*a, **kw))
+
+    class Center:
+        @staticmethod
+        def defaultCenter():
+            return Center()
+
+        def addObserver_selector_name_object_(self, obs, sel, name, obj):
+            got["observers"].append((obs, sel, name))
+
+    monkeypatch.setattr(Foundation, "NSNotificationCenter", Center)
+    monkeypatch.setattr(desktop, "_observers", [])
+    return got
+
+
+class StopRecorder:
+    def __init__(self):
+        self.timeouts = []
+
+    def stop(self, timeout=10):
+        self.timeouts.append(timeout)
+
+
+def test_quit_observer_stops_server_quickly(fake_cocoa):
+    server = StopRecorder()
+    desktop._on_quit(SignalWindow(), server)
+    obs, sel, name = fake_cocoa["observers"][-1]
+    assert name == "NSApplicationWillTerminateNotification"
+    obs.appWillTerminate_(None)
+    assert server.timeouts == [3]  # ⌘Q 时最多等 3 秒，别让界面卡住
+
+
+def test_sigterm_and_sigint_share_handler(fake_cocoa):
+    import signal
+
+    window = SignalWindow()
+    desktop._on_quit(window, None)
+    sigs = fake_cocoa["signals"]
+    assert set(sigs) == {signal.SIGTERM, signal.SIGINT}
+    assert sigs[signal.SIGTERM] is sigs[signal.SIGINT]
+    fake_cocoa["signals"].clear()
+    window.show()  # pywebview 启动事件循环前会换掉 Ctrl+C 的处理，显示后要再装一次
+    handler = sigs.get(signal.SIGINT)
+    assert handler is not None
+    handler(signal.SIGINT)
+    assert window.destroyed == 1

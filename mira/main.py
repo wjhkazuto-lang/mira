@@ -65,7 +65,9 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
             try:
                 await scheduler.startup()
             finally:
-                app.state.startup_done.set()  # 测试和其他线程可以等它，避免在启动任务还在写库时并发访问
+                # 测试和其他线程可以等它，避免在启动任务还在写库时并发访问；
+                # 它只保证启动任务做完了，之后定时任务每一轮仍可能读写数据库
+                app.state.startup_done.set()
             await scheduler.run_forever()
 
         task = asyncio.create_task(background())
