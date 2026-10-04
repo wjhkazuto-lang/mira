@@ -17,6 +17,8 @@ def make_db(path):  # WAL 模式，留一条未 checkpoint 的写入
 
 
 NOW = datetime.fromisoformat("2026-10-04T15:30:00+08:00")
+SRC_MSG = "备份失败：数据库无法读取"
+DST_MSG = "备份失败：无法写入备份文件夹，请检查磁盘空间和 BACKUP_DIR"
 
 
 def test_backup_is_complete_copy_while_db_open(tmp_path):
@@ -55,7 +57,7 @@ def test_same_second_returns_existing_without_overwrite(tmp_path):
 def test_missing_source_raises_backup_error(tmp_path):
     with pytest.raises(BackupError) as e:
         backup_database(tmp_path / "nope.db", tmp_path / "b", NOW)
-    assert e.value.user_message.startswith("备份失败")
+    assert e.value.user_message == SRC_MSG
     assert not (tmp_path / "nope.db").exists()  # 不能因为只读连接而"创建"出空库
 
 
@@ -69,10 +71,51 @@ def test_unwritable_dir_raises_and_leaves_nothing(tmp_path):
             pytest.skip("当前用户不受目录权限限制（如 root）")
         with pytest.raises(BackupError) as e:
             backup_database(tmp_path / "mira.db", ro, NOW)
-        assert e.value.user_message.startswith("备份失败")
+        assert e.value.user_message == DST_MSG  # 是备份文件夹的问题，不是聊天数据库坏了
     finally:
         ro.chmod(0o700)
     assert list(ro.iterdir()) == []
+
+
+def test_unreadable_source_gets_source_message(tmp_path):
+    make_db(tmp_path / "mira.db").close()
+    (tmp_path / "mira.db").chmod(0o000)
+    try:
+        if os.access(tmp_path / "mira.db", os.R_OK):
+            pytest.skip("当前用户不受文件权限限制（如 root）")
+        with pytest.raises(BackupError) as e:
+            backup_database(tmp_path / "mira.db", tmp_path / "b", NOW)
+        assert e.value.user_message == SRC_MSG
+    finally:
+        (tmp_path / "mira.db").chmod(0o600)
+    assert list((tmp_path / "b").iterdir()) == []
+
+
+def test_disk_full_during_copy_gets_destination_message(tmp_path, monkeypatch):
+    make_db(tmp_path / "mira.db")
+    real_connect = sqlite3.connect
+    full = sqlite3.OperationalError("database or disk is full")
+    full.sqlite_errorname = "SQLITE_FULL"
+
+    class Src:  # 源库照常打开，复制时报"磁盘满了"
+        def __init__(self, conn):
+            self.conn = conn
+
+        def backup(self, dst):
+            raise full
+
+        def close(self):
+            self.conn.close()
+
+    def connect(path, *a, **kw):
+        conn = real_connect(path, *a, **kw)
+        return Src(conn) if kw.get("uri") else conn
+
+    monkeypatch.setattr("mira.backup.sqlite3.connect", connect)
+    with pytest.raises(BackupError) as e:
+        backup_database(tmp_path / "mira.db", tmp_path / "b", NOW)
+    assert e.value.user_message == DST_MSG
+    assert list((tmp_path / "b").iterdir()) == []
 
 
 def test_prune_keeps_newest_and_ignores_other_files(tmp_path):

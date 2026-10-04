@@ -11,6 +11,18 @@ class BackupError(Exception):
         self.user_message = user_message  # 中文，可直接给页面
 
 
+SRC_FAILED = "备份失败：数据库无法读取"
+DST_FAILED = "备份失败：无法写入备份文件夹，请检查磁盘空间和 BACKUP_DIR"
+
+
+def _write_side(e: sqlite3.Error) -> bool:
+    """复制过程中的错：磁盘满、只读、打不开、写入出错，算备份文件夹那边的问题。"""
+    name = getattr(e, "sqlite_errorname", "") or ""
+    if name.startswith("SQLITE_IOERR"):
+        return "READ" not in name
+    return name.startswith(("SQLITE_FULL", "SQLITE_READONLY", "SQLITE_CANTOPEN"))
+
+
 def backup_database(db_path: Path, backup_dir: Path, now: datetime) -> Path:
     final = backup_dir / f"{db_path.stem}-{now:%Y%m%d-%H%M%S}.db"
     tmp = backup_dir / f".{final.name}.tmp"
@@ -20,12 +32,20 @@ def backup_database(db_path: Path, backup_dir: Path, now: datetime) -> Path:
             return final
         tmp.unlink(missing_ok=True)
         # mode=ro：源文件不存在时报错，而不是新建空库
-        src = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
         try:
-            dst = sqlite3.connect(tmp)
+            src = sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
+        except sqlite3.Error as e:
+            raise BackupError(SRC_FAILED) from e
+        try:
+            try:
+                dst = sqlite3.connect(tmp)
+            except sqlite3.Error as e:
+                raise BackupError(DST_FAILED) from e
             try:
                 src.backup(dst)
                 ok = dst.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+            except sqlite3.Error as e:
+                raise BackupError(DST_FAILED if _write_side(e) else SRC_FAILED) from e
             finally:
                 dst.close()
         finally:
@@ -42,7 +62,7 @@ def backup_database(db_path: Path, backup_dir: Path, now: datetime) -> Path:
         raise BackupError(f"备份失败：{e.strerror or e}") from e
     except sqlite3.Error as e:
         tmp.unlink(missing_ok=True)
-        raise BackupError("备份失败：数据库无法读取") from e
+        raise BackupError(SRC_FAILED) from e
 
 
 def prune_backups(backup_dir: Path, prefix: str, keep: int) -> list[Path]:
