@@ -71,6 +71,12 @@ def test_probe_other_program():
         t.join(5)
 
 
+def test_message_page_has_drag_strip():
+    # 加载页、出错页也能拖动窗口（标题栏已合进页面）
+    page = message_page("Mira 正在醒来…", "稍等")
+    assert "pywebview-drag-region" in page and "padding-top" in page
+
+
 def test_message_page_escapes_html():
     assert "<script>" not in message_page("<script>", "a & b") and "&amp;" in message_page("x", "a & b")
 

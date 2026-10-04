@@ -43,12 +43,13 @@ _PAGE = """<!doctype html>
 }}
 html, body {{ height: 100%; margin: 0; }}
 body {{ display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--text);
+  box-sizing: border-box; padding-top: 28px;  /* 桌面窗口的红黄绿按钮浮在顶上，内容往下让 */
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }}
 main {{ max-width: 32em; padding: 24px; text-align: center; }}
 h1 {{ font-family: "Songti SC", "STSong", "Noto Serif SC", Georgia, serif; font-weight: normal; color: var(--gold); }}
 p {{ color: var(--muted); line-height: 1.7; white-space: pre-wrap; }}
 </style></head>
-<body><main><h1>{title}</h1><p>{body}</p></main></body></html>
+<body><div class="pywebview-drag-region" style="position:fixed;top:0;left:0;right:0;height:28px"></div><main><h1>{title}</h1><p>{body}</p></main></body></html>
 """
 
 
