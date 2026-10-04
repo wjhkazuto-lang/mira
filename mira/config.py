@@ -31,6 +31,8 @@ class Settings:
     db_path: Path = Path("data/mira.db")
     persona_path: Path = Path("personas/zhengyou.md")
     theme_dir: Path = Path("theme")
+    backup_dir: Path = Path("data/backups")
+    backup_keep: int = 14
     host: str = "127.0.0.1"
     port: int = 8000
     fake: bool = False
@@ -67,7 +69,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         values["persona_path"] = Path("persona.local.md")
     if values.get("fake") and "db_path" not in values:
         values["db_path"] = Path("data/dev.db")  # 开发模式默认用单独的数据库，免得假数据混进真记忆
-    for key in ("db_path", "persona_path", "theme_dir"):
+    for key in ("db_path", "persona_path", "theme_dir", "backup_dir"):
         path = values.get(key, getattr(Settings, key))
         values[key] = path if path.is_absolute() else PROJECT_ROOT / path
     real_db = PROJECT_ROOT / "data" / "mira.db"
@@ -77,6 +79,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     settings = Settings(**values)
     if not 0 <= settings.reflect_hour <= 23:
         raise ConfigError(f"REFLECT_HOUR 必须是 0 到 23：{settings.reflect_hour}")
+    if settings.backup_keep < 1:
+        raise ConfigError(f"BACKUP_KEEP 必须是大于等于 1 的整数：{settings.backup_keep}")
     if not settings.fake and not settings.deepseek_api_key:
         raise ConfigError(_MISSING_KEY_HINT)
     return settings

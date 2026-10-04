@@ -83,3 +83,15 @@ def test_fake_mode_never_uses_real_db():
     assert s.db_path == PROJECT_ROOT / "data" / "dev.db"
     s = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(PROJECT_ROOT / "data" / "mira.db")})
     assert s.db_path == PROJECT_ROOT / "data" / "dev.db"
+
+
+def test_backup_defaults_and_paths():
+    s = load_settings({"DEEPSEEK_API_KEY": "k"})
+    assert s.backup_dir == PROJECT_ROOT / "data" / "backups" and s.backup_keep == 14
+    assert load_settings({"DEEPSEEK_API_KEY": "k", "BACKUP_DIR": "x/b"}).backup_dir == PROJECT_ROOT / "x" / "b"
+
+
+@pytest.mark.parametrize("v", ["0", "-1", "abc"])
+def test_backup_keep_invalid(v):
+    with pytest.raises(ConfigError):
+        load_settings({"DEEPSEEK_API_KEY": "k", "BACKUP_KEEP": v})
