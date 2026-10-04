@@ -14,8 +14,19 @@ BUNDLE_ID = "local.mira.desktop"
 _ICON_SIZES = (16, 32, 128, 256, 512)
 
 
+def _alert(title: str, message: str) -> str:
+    return "osascript -e " + shlex.quote(f'display alert "{title}" message "{message}"')
+
+
 def launcher_script(project_root: Path, uv_path: Path) -> str:
-    return f"#!/bin/zsh\ncd {shlex.quote(str(project_root))} && exec {shlex.quote(str(uv_path))} run python -m mira.desktop\n"
+    """不用 exec：出错时还能弹个提示，免得 Dock 图标跳一下就没了。osascript 用名字调用，测试里可以换成假的。"""
+    moved = _alert("Mira 打不开", "找不到项目文件夹，请在新位置重新运行 uv run python -m mira.make_app")
+    crashed = _alert("Mira 意外退出", "请查看项目里的 data/logs/mira.log")
+    return (
+        "#!/bin/zsh\n"
+        f"cd {shlex.quote(str(project_root))} || {{ {moved}; exit 1; }}\n"
+        f"{shlex.quote(str(uv_path))} run python -m mira.desktop || {{ {crashed}; exit 1; }}\n"
+    )
 
 
 def info_plist() -> bytes:
@@ -57,14 +68,14 @@ def _is_our_app(dest: Path) -> bool:
 def build_app(dest: Path, project_root: Path, uv_path: Path, icon_png: Path | None) -> Path:
     if dest.exists() or dest.is_symlink():
         if not _is_our_app(dest):
-            raise FileExistsError(f"{dest} 已经存在，而且不是 Mira 生成的，没有覆盖。请换个位置或先手动处理。")
+            raise FileExistsError(f"{dest} 已经存在，而且不是 Mira 生成的，没有覆盖。请把它改名或移到废纸篓后重新运行。")
         shutil.rmtree(dest)
     macos, resources = dest / "Contents/MacOS", dest / "Contents/Resources"
     macos.mkdir(parents=True)
     resources.mkdir()
     (dest / "Contents/Info.plist").write_bytes(info_plist())
     exe = macos / "Mira"
-    exe.write_text(launcher_script(project_root, uv_path))
+    exe.write_text(launcher_script(project_root, uv_path), encoding="utf-8")
     exe.chmod(0o755)
     if icon_png is not None:
         make_icns(icon_png, resources / "Mira.icns")  # 图标失败不影响 app 本身
@@ -88,6 +99,10 @@ def main() -> None:
         print(e)
         sys.exit(1)
     print(f"已生成 {dest}，可以拖进 Dock")
+    try:
+        subprocess.run(["open", "-R", str(dest)], check=False)  # 在 Finder 里把它指给你看
+    except OSError:
+        pass
 
 
 if __name__ == "__main__":
