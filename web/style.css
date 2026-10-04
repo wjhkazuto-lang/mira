@@ -264,7 +264,15 @@ body.has-video #bg-video {
 body.has-video::before {
   content: ""; position: fixed; inset: 0; background: var(--veil); z-index: -1;
 }
+/* 有背景时聊天区是一张浮起来的毛玻璃圆角卡片 */
+:root { --card-gap: 12px; --card-radius: 18px; }
+@media (max-width: 600px) { :root { --card-gap: 8px; --card-radius: 14px; } }
+body.has-bg .stage, body.has-video .stage { padding: var(--card-gap) 0; }
 body.has-bg .app, body.has-video .app {
+  width: calc(100% - 2 * var(--card-gap));
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  box-shadow: 0 6px 24px rgba(40, 50, 60, 0.12);
   background: color-mix(in srgb, var(--bg) 62%, transparent);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
