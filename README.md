@@ -52,6 +52,23 @@ uv run python -m mira
 
 然后在浏览器打开 <http://127.0.0.1:8000>。第一次启动时会下载一个约 90MB 的中文向量模型（用于检索记忆），之后就不用再下载了。
 
+### 用 App 打开（可选）
+
+不想每次都开终端，可以生成一个 Mira.app：
+
+```bash
+uv run python -m mira.make_app
+```
+
+它会在"应用程序"（`~/Applications`）里放一个 Mira。双击打开，Mira 会在自己的窗口里运行，可以把它拖进 Dock。如果项目里有 `theme/mira/avatar.png`，会用它做图标。
+
+- **关窗口（或按 ⌘Q）就会停止 Mira**。如果你已经在终端里启动了 Mira，App 只会打开一个窗口，关掉窗口不会停止终端里的那个
+- 日志在 `data/logs/mira.log`，打不开时可以看看这里
+- 这个 App 只能在这台 Mac 上用：它指向当前的项目文件夹，并且需要装有 uv。**移动或改名项目文件夹后，要重新运行一次上面的命令**
+- 如果"应用程序"里已有不是这样生成的 Mira.app，命令会拒绝覆盖它
+- Dock 里显示的名字可能是 "Python" 而不是 Mira，这只是外观问题，不影响使用
+- 上面的终端启动方式仍然可用
+
 ### 只想先看看界面？
 
 开发模式下用的是假回复，不需要 API key，也不会下载模型：
@@ -62,7 +79,12 @@ MIRA_FAKE=1 DB_PATH=data/dev.db uv run python -m mira
 
 ## 日常使用
 
-- **备份**：复制 `data/mira.db` 就行（如果有 `mira.db-wal` 文件，请先停止 Mira 再复制）
+- **备份**：Mira 每天自动备份一次到 `data/backups/`，默认保留最近 14 份；位置和份数可以在 `.env` 里用 `BACKUP_DIR`、`BACKUP_KEEP` 修改。记忆页上也能看到"上次备份"，点"立即备份"可以马上备一份
+- **恢复备份**：
+  1. 先退出 Mira（关掉窗口，或在终端按 Ctrl+C）
+  2. 用 `data/backups/` 里想要的那个备份文件覆盖 `data/mira.db`
+  3. 如果 `data/` 里有 `mira.db-wal`、`mira.db-shm` 这两个文件，把它们删掉
+  4. 重新启动 Mira
 - **选人设 / 改人设**：见下面的"人设"一节
 - **二次元界面**：在项目根目录建一个 `theme/` 文件夹（不会被 git 提交）：
   - `theme/mira/` 放 Mira 的立绘，每种表情一张，文件名用 `calm`（平静）、`talk`（说话）、`smile`（微笑）、`happy`（开心）、`gentle`（温柔）、`worried`（担心）、`surprised`（惊讶）、`annoyed`（不满），格式 png/webp/jpg 都行，有几张放几张。她会按每次回复的语气换表情
@@ -117,6 +139,9 @@ uv run python evals/run_evals.py       # 记忆质量评估（调用真实 API�
 | `mira/reflector.py` | 每日反思：发现模式、更新核心档案、标记逾期承诺 |
 | `mira/retriever.py` | 混合检索（语义 + 关键词 + 重要度/新近度） |
 | `mira/store.py` | 唯一读写数据库的地方 |
+| `mira/backup.py` | 每日自动备份数据库，清理旧备份 |
+| `mira/desktop.py` | 桌面窗口入口（App 用它打开自己的窗口） |
+| `mira/make_app.py` | 生成 `~/Applications/Mira.app` |
 | `mira/prompts/` | 给模型的提示词 |
 | `web/` | 聊天页和记忆管理页（纯 HTML/JS，不需要构建） |
 
