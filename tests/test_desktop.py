@@ -207,3 +207,110 @@ def test_main_exits_nonzero_when_logging_setup_fails(tmp_path, monkeypatch, capl
         desktop.main()
     assert e.value.code == 1
     assert any(r.exc_info for r in caplog.records)  # 没有日志文件时 log.exception 会落到 stderr
+
+
+class FakeView:
+    def __init__(self, name, color_settable=True):
+        self.name = name
+        self.color = "white"
+        self.frame = None
+        self.children = []
+        self.parent = None
+        self.color_settable = color_settable
+
+    def isEqual_(self, other):
+        return self is other
+
+    def respondsToSelector_(self, sel):
+        return sel == "setBackgroundColor:" and self.color_settable
+
+    def setBackgroundColor_(self, color):
+        self.color = color
+
+    def superview(self):
+        return self.parent
+
+    def subviews(self):
+        return self.children
+
+    def setFrame_(self, rect):
+        self.frame = rect
+
+
+class FakeNSWindow:
+    def __init__(self):
+        from AppKit import NSMakeRect
+
+        self.mask = 15
+        self.transparent = False
+        self.title_visibility = 0
+        self.content = FakeView("content", color_settable=False)
+        self.titlebar = FakeView("titlebar")
+        theme = FakeView("theme")
+        theme.children = [self.content, self.titlebar]
+        self.content.parent = theme
+        self._frame = NSMakeRect(0, 0, 1280, 860)
+
+    def styleMask(self):
+        return self.mask
+
+    def setStyleMask_(self, mask):
+        self.mask = mask
+
+    def setTitlebarAppearsTransparent_(self, value):
+        self.transparent = value
+
+    def setTitleVisibility_(self, value):
+        self.title_visibility = value
+
+    def contentView(self):
+        return self.content
+
+    def frame(self):
+        return self._frame
+
+    def contentRectForFrameRect_(self, rect):
+        return rect
+
+
+def test_window_chrome_makes_titlebar_transparent_and_fills_window():
+    from AppKit import NSColor, NSWindowStyleMaskFullSizeContentView, NSWindowTitleHidden
+
+    native = FakeNSWindow()
+    assert desktop._apply_window_chrome(native)
+    assert native.mask & NSWindowStyleMaskFullSizeContentView and native.mask & 15 == 15  # 原来的按钮、可缩放都保留
+    assert native.transparent and native.title_visibility == NSWindowTitleHidden
+    assert native.titlebar.color == NSColor.clearColor() and native.content.color == "white"
+    assert (native.content.frame.size.width, native.content.frame.size.height) == (1280, 860)
+
+
+def test_window_chrome_failure_only_logs(caplog):
+    class Broken:
+        def styleMask(self):
+            raise RuntimeError("坏了")
+
+    with caplog.at_level(logging.WARNING, logger="mira.desktop"):
+        assert desktop._apply_window_chrome(Broken()) is False
+    assert "标题栏" in caplog.text
+
+
+def test_install_window_chrome_registers_handlers(monkeypatch):
+    applied = []
+    monkeypatch.setattr(desktop, "_apply_window_chrome", lambda native: applied.append(native))
+
+    class Hook:
+        def __init__(self):
+            self.items = []
+
+        def __iadd__(self, fn):
+            self.items.append(fn)
+            return self
+
+    window = type("W", (), {})()
+    window.native = "ns"
+    window.events = type("E", (), {})()
+    window.events.before_show, window.events.loaded = Hook(), Hook()
+    desktop._install_window_chrome(window)
+    assert len(window.events.before_show.items) == 1 and len(window.events.loaded.items) == 1
+    window.events.before_show.items[0]()  # 测试跑在主线程上，直接生效
+    assert applied == ["ns"]

@@ -216,6 +216,15 @@ textarea.profile { min-height: 320px; }
   .status-row button { align-self: flex-start; }
 }
 
+/* ---------- 桌面窗口：标题栏合进页面（只有 html.in-app 时生效，浏览器里不变） ---------- */
+
+:root { --drag-h: 0px; }
+html.in-app { --drag-h: 28px; }
+.app-drag { display: none; }
+/* 顶部透明的一条：按住能拖动窗口，红黄绿按钮浮在它上面 */
+html.in-app .app-drag { display: block; position: fixed; top: 0; left: 0; right: 0; height: var(--drag-h); z-index: 100; }
+html.in-app body { padding-top: var(--drag-h); }  /* 内容往下让，背景和视频仍铺到最顶 */
+
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg);
   padding: 8px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
 .toast.show { opacity: 1; }

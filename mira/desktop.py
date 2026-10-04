@@ -167,6 +167,55 @@ def _set_dock_icon(path: Path) -> None:
         log.warning("设置 Dock 图标失败", exc_info=True)
 
 
+def _apply_window_chrome(native) -> bool:
+    """标题栏变透明、页面铺到窗口最顶上，红黄绿按钮浮在页面上。失败只记日志，不影响启动。"""
+    try:
+        from AppKit import NSColor, NSMakeRect, NSWindowStyleMaskFullSizeContentView, NSWindowTitleHidden
+
+        native.setStyleMask_(native.styleMask() | NSWindowStyleMaskFullSizeContentView)
+        native.setTitlebarAppearsTransparent_(True)
+        native.setTitleVisibility_(NSWindowTitleHidden)  # 标题还是 Mira，只是不画出来（调度中心、窗口菜单仍会用）
+        content = native.contentView()
+        frame_view = content.superview() if content is not None else None
+        if frame_view is not None:
+            # pywebview 给标题栏涂了底色，不清掉会留下一条色带
+            for view in frame_view.subviews():
+                if not view.isEqual_(content) and view.respondsToSelector_("setBackgroundColor:"):
+                    view.setBackgroundColor_(NSColor.clearColor())
+            # 网页视图要铺满整个窗口（包括原来标题栏那一块）
+            full = native.contentRectForFrameRect_(native.frame())
+            content.setFrame_(NSMakeRect(0, 0, full.size.width, full.size.height))
+        return True
+    except Exception:
+        log.warning("设置窗口标题栏样式失败", exc_info=True)
+        return False
+
+
+def _install_window_chrome(window) -> None:
+    """窗口显示前先设一次；每次页面加载完再设一次（第一次加载时 pywebview 才把网页视图放进窗口）。"""
+    try:
+        from Foundation import NSThread
+        from PyObjCTools import AppHelper
+
+        def apply() -> None:
+            if window.native is not None:
+                _apply_window_chrome(window.native)
+
+        def before_show() -> None:
+            if NSThread.isMainThread():
+                apply()  # 在主线程上就直接设，免得先闪一下白色标题栏
+            else:
+                AppHelper.callAfter(apply)
+
+        def loaded() -> None:
+            AppHelper.callAfter(apply)  # 窗口只能在主线程上改
+
+        window.events.before_show += before_show
+        window.events.loaded += loaded
+    except Exception:
+        log.warning("注册窗口标题栏样式失败", exc_info=True)
+
+
 _observers: list = []  # 留住引用，免得被回收
 
 
@@ -220,6 +269,7 @@ def _open_window(log_file: Path, html_page: str | None = None, url: str = "", se
         "Mira", url=None if html_page else url, html=html_page, width=1280, height=860, min_size=(420, 600),
     )
     _set_app_name()
+    _install_window_chrome(window)
     _on_quit(window, server)
     icon = icon or PROJECT_ROOT / "theme" / "mira" / "avatar.png"
     webview.start(func=_watch, args=(window, server, url, icon, log_file))
