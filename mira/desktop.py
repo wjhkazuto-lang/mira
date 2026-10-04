@@ -4,6 +4,7 @@ import html
 import json
 import logging
 import sys
+import tempfile
 import threading
 import urllib.request
 from pathlib import Path
@@ -147,9 +148,19 @@ def _set_dock_icon(path: Path) -> None:
         return
     try:
         from AppKit import NSApplication, NSImage
+        from Foundation import NSData
         from PyObjCTools import AppHelper
 
-        image = NSImage.alloc().initWithContentsOfFile_(str(path))
+        from mira.icon import rounded_icon_png
+
+        image = None
+        with tempfile.TemporaryDirectory() as tmp:
+            rounded = Path(tmp) / "icon.png"
+            if rounded_icon_png(path, rounded):  # 圆角留白；失败就用原图
+                image = NSImage.alloc().initWithData_(NSData.dataWithBytes_length_(
+                    rounded.read_bytes(), rounded.stat().st_size))  # 读进内存，临时文件随后会删
+        if image is None:
+            image = NSImage.alloc().initWithContentsOfFile_(str(path))
         if image is not None:
             AppHelper.callAfter(NSApplication.sharedApplication().setApplicationIconImage_, image)
     except Exception:

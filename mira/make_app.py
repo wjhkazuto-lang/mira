@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from mira.config import PROJECT_ROOT
+from mira.icon import rounded_icon_png
 
 BUNDLE_ID = "local.mira.desktop"
 _ICON_SIZES = (16, 32, 128, 256, 512)
@@ -44,6 +45,9 @@ def make_icns(png: Path, out: Path) -> bool:
         with tempfile.TemporaryDirectory() as tmp:
             iconset = Path(tmp) / "Mira.iconset"
             iconset.mkdir()
+            rounded = Path(tmp) / "rounded.png"
+            if rounded_icon_png(png, rounded):  # 圆角留白；失败就用原图
+                png = rounded
             for s in _ICON_SIZES:
                 for scale in (1, 2):
                     name = f"icon_{s}x{s}{'@2x' if scale == 2 else ''}.png"
