@@ -60,12 +60,12 @@ uv run python -m mira
 uv run python -m mira.make_app
 ```
 
-它会在"应用程序"（`~/Applications`）里放一个 Mira。双击打开，Mira 会在自己的窗口里运行，可以把它拖进 Dock。如果项目里有 `theme/mira/avatar.png`，会用它做图标。
+它会在你个人文件夹里的"应用程序"（`~/Applications`）里放一个 Mira，生成后会自动在 Finder 里选中它。注意这不是 Finder 侧边栏里那个"应用程序"：以后要找它，可以在 Finder 里按 ⇧⌘H 打开个人文件夹再进"应用程序"，或者用聚焦搜索（⌘空格）、启动台搜"Mira"。双击打开，Mira 会在自己的窗口里运行，可以把它拖进 Dock。如果项目里有 `theme/mira/avatar.png`，会用它做图标。
 
 - **关窗口（或按 ⌘Q）就会停止 Mira**。如果你已经在终端里启动了 Mira，App 只会打开一个窗口，关掉窗口不会停止终端里的那个
 - 日志在 `data/logs/mira.log`，打不开时可以看看这里
 - 这个 App 只能在这台 Mac 上用：它指向当前的项目文件夹，并且需要装有 uv。**移动或改名项目文件夹后，要重新运行一次上面的命令**
-- 如果"应用程序"里已有不是这样生成的 Mira.app，命令会拒绝覆盖它
+- 如果个人文件夹的"应用程序"里已有不是这样生成的 Mira.app，命令会拒绝覆盖它（把它改名或移到废纸篓后再运行一次）
 - Dock 里显示的名字可能是 "Python" 而不是 Mira，这只是外观问题，不影响使用
 - 上面的终端启动方式仍然可用
 
@@ -81,10 +81,11 @@ MIRA_FAKE=1 DB_PATH=data/dev.db uv run python -m mira
 
 - **备份**：Mira 每天自动备份一次到 `data/backups/`，默认保留最近 14 份；位置和份数可以在 `.env` 里用 `BACKUP_DIR`、`BACKUP_KEEP` 修改。记忆页上也能看到"上次备份"，点"立即备份"可以马上备一份
 - **恢复备份**：
-  1. 先退出 Mira（关掉窗口，或在终端按 Ctrl+C）
-  2. 用 `data/backups/` 里想要的那个备份文件覆盖 `data/mira.db`
-  3. 如果 `data/` 里有 `mira.db-wal`、`mira.db-shm` 这两个文件，把它们删掉
-  4. 重新启动 Mira
+  1. 先退出 Mira：关掉 App 窗口；如果是在终端里启动的，要在那个终端按 Ctrl+C（关 App 窗口停不掉终端里的 Mira）
+  2. 把现在的 `data/mira.db` 改名为 `mira.db.old`（先留着，别直接覆盖）
+  3. 如果 `data/` 里有 `mira.db-wal`、`mira.db-shm` 这两个文件，把它们删掉——一定要删，否则恢复不会生效
+  4. 把 `data/backups/` 里想要的那个备份（文件名像 `mira-20261004-153000.db`）复制到 `data/`，改名为 `mira.db`
+  5. 重新启动 Mira
 - **选人设 / 改人设**：见下面的"人设"一节
 - **二次元界面**：在项目根目录建一个 `theme/` 文件夹（不会被 git 提交）：
   - `theme/mira/` 放 Mira 的立绘，每种表情一张，文件名用 `calm`（平静）、`talk`（说话）、`smile`（微笑）、`happy`（开心）、`gentle`（温柔）、`worried`（担心）、`surprised`（惊讶）、`annoyed`（不满），格式 png/webp/jpg 都行，有几张放几张。她会按每次回复的语气换表情
