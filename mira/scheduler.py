@@ -55,6 +55,7 @@ class Scheduler:
             due = max(due, retry)
         runs = [t for t in (self._store.get_job_last_run(j) for j in BACKUP_JOBS) if t]
         last_backup = max(runs) if runs else None
+        backup_err_job = next((j for j in reversed(BACKUP_JOBS) if j in self._errors), None)  # 两个都失败时先显示手动的
         state = "running" if "writer" in self._running else (
             "retrying" if "writer" in self._errors else ("waiting" if pending else "idle")
         )
@@ -68,7 +69,8 @@ class Scheduler:
             "reflector_error": self._errors.get("reflector"),
             "last_backup_at": last_backup.isoformat() if last_backup else None,
             "backup_running": any(j in self._running for j in BACKUP_JOBS),
-            "backup_error": next((self._errors[j] for j in BACKUP_JOBS if j in self._errors), None),
+            "backup_error": self._errors.get(backup_err_job) if backup_err_job else None,
+            "backup_error_manual": backup_err_job == "backup_manual",  # 手动失败不会自动重试
         }
 
     def notify_activity(self) -> None:
@@ -96,7 +98,9 @@ class Scheduler:
             await self._run_writer()
         today_at_hour = now.replace(hour=self._settings.reflect_hour, minute=0, second=0, microsecond=0)
         last = self._store.get_job_last_run("reflector")
-        if now >= today_at_hour and (last is None or (last < today_at_hour and today_at_hour - last >= REFLECT_MIN_GAP)):
+        # 离上次至少 12 小时才跑凌晨这次；Mac 凌晨在睡觉时，满 24 小时也补跑，保证每天一次
+        if now >= today_at_hour and (last is None or (last < today_at_hour and (
+                today_at_hour - last >= REFLECT_MIN_GAP or now - last >= timedelta(hours=24)))):
             await self._run_reflector()
         if self._backup_due():
             await self._run_backup()

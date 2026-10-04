@@ -388,7 +388,7 @@ async def test_no_4am_reflect_within_12h_of_startup_run(store, clock):
     s, _, r = make(store, clock)
     await s.startup()
     assert r.runs == 1
-    for t in ("2026-10-04T04:05:00+08:00", "2026-10-04T10:05:00+08:00", "2026-10-04T23:00:00+08:00"):
+    for t in ("2026-10-04T04:05:00+08:00", "2026-10-04T10:05:00+08:00", "2026-10-04T21:00:00+08:00"):  # 不满 24 小时
         at(clock, t)
         await s.tick()
         assert r.runs == 1
@@ -404,3 +404,47 @@ async def test_4am_reflect_after_12h_gap(store, clock):
     at(clock, "2026-10-04T04:05:00+08:00")
     await s.tick()
     assert r.runs == 2
+
+
+async def test_reflect_daily_when_only_awake_at_19(store, clock):
+    at(clock, "2026-10-01T19:00:00+08:00")
+    s, _, r = make(store, clock)
+    await s.startup()
+    assert r.runs == 1
+    for day in range(2, 7):  # Mac 只在每天 19:00 醒着
+        at(clock, f"2026-10-0{day}T19:00:00+08:00")
+        await s.tick()
+        assert r.runs == day
+
+
+async def test_status_backup_error_manual_flag(store, clock):
+    b = Backup(fail=True)
+    s, _, _ = make(store, clock, backup=b)
+    assert s.status()["backup_error_manual"] is False
+    with pytest.raises(BackupError):
+        await s.backup_now()
+    st = s.status()
+    assert st["backup_error"] == "备份失败：磁盘已满" and st["backup_error_manual"] is True
+
+
+async def test_status_backup_error_auto_flag(store, clock):
+    b = Backup(fail=True)
+    s, _, _ = make(store, clock, backup=b)
+    await s.startup()
+    st = s.status()
+    assert st["backup_error"] and st["backup_error_manual"] is False
+
+
+async def test_status_backup_error_prefers_manual_when_both(store, clock):
+    calls = []
+
+    def backup(manual):
+        calls.append(manual)
+        raise BackupError("手动失败" if manual else "自动失败")
+
+    s, _, _ = make(store, clock, backup=backup)
+    await s.startup()
+    with pytest.raises(BackupError):
+        await s.backup_now()
+    st = s.status()
+    assert st["backup_error"] == "手动失败" and st["backup_error_manual"] is True

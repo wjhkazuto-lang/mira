@@ -158,7 +158,7 @@
       if (s.reflector_error) text += ` · 每日反思未完成：${s.reflector_error}，稍后自动重试`;
       text += s.last_backup_at ? ` · 上次备份：${fmt(s.last_backup_at)}` : " · 还没有备份";
       if (s.backup_running) text += " · 正在备份";
-      if (s.backup_error) text += ` · ${s.backup_error}，30 分钟后自动重试`;
+      if (s.backup_error) text += ` · ${s.backup_error}${s.backup_error_manual ? "（可以再点一次立即备份）" : "，30 分钟后自动重试"}`;
       statusEl.textContent = text;
       statusEl.className = s.error || s.reflector_error || s.backup_error ? "memory-status error" : "memory-status";
     } catch {
