@@ -98,3 +98,16 @@ def test_run_backup_prunes_with_db_stem_prefix(tmp_path):
     names = {p.name for p in b.iterdir()}
     assert {n for n in names if n.startswith("dev-")} == {"dev-20261004-153000.db", "dev-20260903-120000.db"}
     assert len([n for n in names if n.startswith("mira-")]) == 3
+
+
+def test_run_backup_prune_failure_raises_backup_error_and_keeps_new_backup(tmp_path, monkeypatch):
+    make_db(tmp_path / "mira.db")
+
+    def boom(*a):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("mira.backup.prune_backups", boom)
+    with pytest.raises(BackupError) as e:
+        run_backup(tmp_path / "mira.db", tmp_path / "b", 1, NOW)
+    assert e.value.user_message.startswith("备份失败")
+    assert (tmp_path / "b" / "mira-20261004-153000.db").exists()

@@ -56,5 +56,8 @@ def prune_backups(backup_dir: Path, prefix: str, keep: int) -> list[Path]:
 
 def run_backup(db_path: Path, backup_dir: Path, keep: int, now: datetime) -> Path:
     out = backup_database(db_path, backup_dir, now)
-    prune_backups(backup_dir, db_path.stem, keep)
+    try:
+        prune_backups(backup_dir, db_path.stem, keep)
+    except OSError as e:  # 新备份已成功并保留，但清理失败要让页面看到
+        raise BackupError(f"备份失败：{e.strerror or e}") from e
     return out
