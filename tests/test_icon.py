@@ -50,3 +50,22 @@ def test_transparent_source_gets_opaque_background(tmp_path):
     assert rounded_icon_png(src, out) is True
     assert _alpha(out, 880, 512) == 1
     assert _alpha(out, 5, 5) == 0
+
+
+def test_false_when_graphics_context_unavailable(tmp_path, monkeypatch):
+    import AppKit
+
+    class NoContext:
+        saveGraphicsState = staticmethod(AppKit.NSGraphicsContext.saveGraphicsState)
+        restoreGraphicsState = staticmethod(AppKit.NSGraphicsContext.restoreGraphicsState)
+        setCurrentContext_ = staticmethod(AppKit.NSGraphicsContext.setCurrentContext_)
+
+        @staticmethod
+        def graphicsContextWithBitmapImageRep_(rep):
+            return None
+
+    monkeypatch.setattr(AppKit, "NSGraphicsContext", NoContext)
+    src, out = tmp_path / "a.png", tmp_path / "r.png"
+    _png(src)
+    assert rounded_icon_png(src, out) is False
+    assert not out.exists()  # 不写空白图

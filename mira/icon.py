@@ -31,9 +31,12 @@ def rounded_icon_png(src: Path, out: Path, size: int = 1024) -> bool:
         body = size * 0.8
         inset = (size - body) / 2
         radius = body * 0.2237
+        ctx = NSGraphicsContext.graphicsContextWithBitmapImageRep_(rep)
+        if ctx is None:  # 拿不到画布就别写出一张空白图
+            return False
         NSGraphicsContext.saveGraphicsState()
         try:
-            NSGraphicsContext.setCurrentContext_(NSGraphicsContext.graphicsContextWithBitmapImageRep_(rep))
+            NSGraphicsContext.setCurrentContext_(ctx)
             path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
                 NSMakeRect(inset, inset, body, body), radius, radius)
             path.addClip()
