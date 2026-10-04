@@ -40,9 +40,9 @@ def client(app):
 def test_startup_done_waits_for_slow_startup_backup(app):
     original = app.state.scheduler._backup
 
-    def slow_backup():
+    def slow_backup(manual):
         time.sleep(0.3)
-        return original()
+        return original(manual)
 
     app.state.scheduler._backup = slow_backup
     with started_client(app):
@@ -303,7 +303,7 @@ def test_video_background_supports_range_requests(tmp_path):
 
 def test_backup_endpoint(client, tmp_path):
     r = client.post("/api/backup")
-    assert r.status_code == 200 and r.json()["file"].startswith("t-")
+    assert r.status_code == 200 and r.json()["file"].startswith("t-manual-")
     assert (tmp_path / "backups" / r.json()["file"]).exists()
     assert client.get("/api/memory-status").json()["last_backup_at"]
 

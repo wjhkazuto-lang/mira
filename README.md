@@ -79,7 +79,7 @@ MIRA_FAKE=1 DB_PATH=data/dev.db uv run python -m mira
 
 ## 日常使用
 
-- **备份**：Mira 每天自动备份一次到 `data/backups/`，默认保留最近 14 份；位置和份数可以在 `.env` 里用 `BACKUP_DIR`、`BACKUP_KEEP` 修改。记忆页上也能看到"上次备份"，点"立即备份"可以马上备一份
+- **备份**：Mira 每天自动备份一次到 `data/backups/`，默认保留最近 14 份；位置和份数可以在 `.env` 里用 `BACKUP_DIR`、`BACKUP_KEEP` 修改。记忆页上也能看到"上次备份"，点"立即备份"可以马上备一份（文件名带 `-manual-`，单独计数，最多留最近 5 份，不会挤掉自动备份）
 - **恢复备份**：
   1. 先退出 Mira：关掉 App 窗口；如果是在终端里启动的，要在那个终端按 Ctrl+C（关 App 窗口停不掉终端里的 Mira）
   2. 把现在的 `data/mira.db` 改名为 `mira.db.old`（先留着，别直接覆盖）

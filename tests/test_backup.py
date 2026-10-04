@@ -1,10 +1,11 @@
+import errno
 import os
 import sqlite3
 from datetime import datetime
 
 import pytest
 
-from mira.backup import BackupError, backup_database, prune_backups, run_backup
+from mira.backup import MANUAL_KEEP, BackupError, backup_database, prune_backups, run_backup
 
 
 def make_db(path):  # WAL 模式，留一条未 checkpoint 的写入
@@ -107,6 +108,9 @@ def test_disk_full_during_copy_gets_destination_message(tmp_path, monkeypatch):
         def close(self):
             self.conn.close()
 
+        def execute(self, *a):
+            return self.conn.execute(*a)
+
     def connect(path, *a, **kw):
         conn = real_connect(path, *a, **kw)
         return Src(conn) if kw.get("uri") else conn
@@ -154,3 +158,117 @@ def test_run_backup_prune_failure_raises_backup_error_and_keeps_new_backup(tmp_p
         run_backup(tmp_path / "mira.db", tmp_path / "b", 1, NOW)
     assert e.value.user_message.startswith("备份失败")
     assert (tmp_path / "b" / "mira-20261004-153000.db").exists()
+
+
+def test_manual_backup_has_own_name_and_pool(tmp_path):
+    make_db(tmp_path / "mira.db")
+    b = tmp_path / "b"
+    b.mkdir()
+    for i in range(1, 8):
+        (b / f"mira-manual-202609{i:02d}-120000.db").touch()
+    for i in range(1, 4):
+        (b / f"mira-202609{i:02d}-120000.db").touch()
+    out = run_backup(tmp_path / "mira.db", b, 14, NOW, manual=True)
+    assert out.name == "mira-manual-20261004-153000.db"
+    names = sorted(p.name for p in b.iterdir())
+    manual = [n for n in names if "-manual-" in n]
+    assert MANUAL_KEEP == 5 and len(manual) == 5 and manual[-1] == out.name
+    assert len([n for n in names if "-manual-" not in n]) == 3  # 自动备份不受手动清理影响
+
+
+def test_auto_prune_ignores_manual_files(tmp_path):
+    make_db(tmp_path / "mira.db")
+    b = tmp_path / "b"
+    b.mkdir()
+    for i in range(1, 4):
+        (b / f"mira-manual-2026100{i}-120000.db").touch()
+    (b / "mira-20260901-120000.db").touch()
+    run_backup(tmp_path / "mira.db", b, 1, NOW)
+    names = {p.name for p in b.iterdir()}
+    assert names == {"mira-20261004-153000.db"} | {f"mira-manual-2026100{i}-120000.db" for i in range(1, 4)}
+
+
+def test_same_second_rule_is_per_prefix(tmp_path):
+    make_db(tmp_path / "mira.db")
+    auto = backup_database(tmp_path / "mira.db", tmp_path / "b", NOW)
+    man = backup_database(tmp_path / "mira.db", tmp_path / "b", NOW, manual=True)
+    assert auto != man and auto.exists() and man.exists()
+    assert backup_database(tmp_path / "mira.db", tmp_path / "b", NOW, manual=True) == man
+
+
+@pytest.mark.parametrize("code,text", [
+    (errno.ENOSPC, "磁盘空间不足"),
+    (errno.EACCES, "没有权限写入备份文件夹"),
+    (errno.EPERM, "没有权限写入备份文件夹"),
+    (errno.ENOENT, "找不到文件或文件夹"),
+    (errno.EROFS, "备份位置是只读的"),
+    (errno.EIO, "系统错误（EIO）"),
+])
+def test_os_errors_are_chinese(tmp_path, monkeypatch, code, text):
+    make_db(tmp_path / "mira.db")
+
+    def boom(*a):
+        raise OSError(code, "English strerror")
+
+    monkeypatch.setattr("mira.backup.os.replace", boom)
+    with pytest.raises(BackupError) as e:
+        backup_database(tmp_path / "mira.db", tmp_path / "b", NOW)
+    assert e.value.user_message == f"备份失败：{text}"
+    assert list((tmp_path / "b").iterdir()) == []
+
+
+def _cantopen_during_copy(monkeypatch):
+    real_connect = sqlite3.connect
+    err = sqlite3.OperationalError("unable to open database file")
+    err.sqlite_errorname = "SQLITE_CANTOPEN"
+
+    class Src:
+        def __init__(self, conn):
+            self.conn = conn
+
+        def backup(self, dst):
+            raise err
+
+        def close(self):
+            self.conn.close()
+
+    def connect(path, *a, **kw):
+        conn = real_connect(path, *a, **kw)
+        return Src(conn) if kw.get("uri") else conn
+
+    monkeypatch.setattr("mira.backup.sqlite3.connect", connect)
+
+
+def test_cantopen_when_source_unreadable_blames_source(tmp_path, monkeypatch):
+    make_db(tmp_path / "mira.db")
+    _cantopen_during_copy(monkeypatch)
+    monkeypatch.setattr("mira.backup._source_readable", lambda p: False)
+    with pytest.raises(BackupError) as e:
+        backup_database(tmp_path / "mira.db", tmp_path / "b", NOW)
+    assert e.value.user_message == SRC_MSG
+    assert list((tmp_path / "b").iterdir()) == []
+
+
+def test_cantopen_when_source_readable_blames_destination(tmp_path, monkeypatch):
+    make_db(tmp_path / "mira.db")
+    _cantopen_during_copy(monkeypatch)
+    monkeypatch.setattr("mira.backup._source_readable", lambda p: True)
+    with pytest.raises(BackupError) as e:
+        backup_database(tmp_path / "mira.db", tmp_path / "b", NOW)
+    assert e.value.user_message == DST_MSG
+
+
+def test_source_readable_helper(tmp_path):
+    from mira.backup import _source_readable
+    make_db(tmp_path / "mira.db").close()
+    assert _source_readable(tmp_path / "mira.db") is True
+    assert _source_readable(tmp_path / "nope.db") is False
+
+
+def test_quick_check_failure_removes_tmp_and_leaves_no_file(tmp_path, monkeypatch):
+    make_db(tmp_path / "mira.db")
+    monkeypatch.setattr("mira.backup._quick_check_ok", lambda conn: False)
+    with pytest.raises(BackupError) as e:
+        backup_database(tmp_path / "mira.db", tmp_path / "b", NOW)
+    assert e.value.user_message == "备份失败：备份文件校验未通过"
+    assert list((tmp_path / "b").iterdir()) == []  # 临时文件和正式文件都没有

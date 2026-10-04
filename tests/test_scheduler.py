@@ -212,8 +212,10 @@ class Backup:
     def __init__(self, fail=False):
         self.runs = 0
         self.fail = fail
+        self.manual_flags = []
 
-    def __call__(self):
+    def __call__(self, manual=False):
+        self.manual_flags.append(manual)
         self.runs += 1
         if self.fail:
             raise BackupError("备份失败：磁盘已满")
@@ -238,9 +240,9 @@ async def test_startup_backs_up_before_writer(store, clock):
         async def run(self):
             order.append("writer")
 
-    def backup():
+    def backup(manual):
         order.append("backup")
-        return orig()
+        return orig(manual)
 
     s, _, _ = make(store, clock, writer=W(), backup=backup)
     store.add_message("user", "hi")
@@ -281,7 +283,7 @@ async def test_backup_failure_backs_off_30min_and_reports(store, clock):
 
 
 async def test_backup_unexpected_error_is_generic(store, clock):
-    def boom():
+    def boom(manual):
         raise OSError("/secret/path")
 
     s, _, _ = make(store, clock, backup=boom)
@@ -323,6 +325,46 @@ async def test_backup_now_ignores_interval_and_raises_on_failure(store, clock):
     b.fail = False
     await s.backup_now()  # 失败退避也不拦手动备份
     assert b.runs == 4 and s.status()["backup_error"] is None
+
+
+async def test_manual_backup_uses_own_job_and_keeps_auto_interval(store, clock):
+    b = Backup()
+    s, _, _ = make(store, clock, backup=b)
+    await s.startup()
+    auto_at = store.get_job_last_run("backup")
+    clock.advance(23 * 3600)
+    await s.backup_now()
+    assert b.manual_flags == [False, True]
+    assert store.get_job_last_run("backup") == auto_at  # 手动备份不重置 24 小时
+    assert store.get_job_last_run("backup_manual") == clock.now()
+    assert s.status()["last_backup_at"] == clock.now().isoformat()  # 取较新的那个
+    clock.advance(2 * 3600)
+    await s.tick()
+    assert b.manual_flags == [False, True, False]
+
+
+async def test_manual_failure_does_not_delay_auto_backup(store, clock):
+    b = Backup()
+    s, _, _ = make(store, clock, backup=b)
+    b.fail = True
+    with pytest.raises(BackupError):
+        await s.backup_now()
+    assert "backup" not in s._not_before
+    assert s.status()["backup_error"] == "备份失败：磁盘已满"
+    b.fail = False
+    await s.tick()  # 从没自动备份过，马上该备，不用等 30 分钟
+    assert b.manual_flags == [True, False]
+    assert s.status()["backup_error"] is None
+
+
+async def test_manual_success_clears_auto_error(store, clock):
+    b = Backup(fail=True)
+    s, _, _ = make(store, clock, backup=b)
+    await s.startup()
+    assert s.status()["backup_error"]
+    b.fail = False
+    await s.backup_now()
+    assert s.status()["backup_error"] is None
 
 
 async def test_status_has_backup_fields(store, clock):

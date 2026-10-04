@@ -46,7 +46,7 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
     reflector = Reflector(store, embedder, llm, settings)
     scheduler = Scheduler(
         store=store, writer=writer, reflector=reflector, settings=settings,
-        backup=lambda: run_backup(settings.db_path, settings.backup_dir, settings.backup_keep, clock.now()),
+        backup=lambda manual: run_backup(settings.db_path, settings.backup_dir, settings.backup_keep, clock.now(), manual=manual),
     )
     engine = ChatEngine(
         store=store,

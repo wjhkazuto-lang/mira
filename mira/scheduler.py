@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 FAILURE_BACKOFF = timedelta(minutes=30)  # 失败后等一会儿再试，避免反复花钱调用模型
 BACKUP_INTERVAL = timedelta(hours=24)
+BACKUP_JOBS = ("backup", "backup_manual")  # 自动 / 手动；只有自动的会影响 24 小时间隔
 REFLECT_MIN_GAP = timedelta(hours=12)  # 两次反思之间至少隔这么久（启动补跑后不再马上凌晨又跑）
 
 
@@ -29,7 +30,7 @@ class Scheduler:
         settings: Settings,
         now: Callable[[], datetime] = clock.now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-        backup: Callable[[], Path] | None = None,  # 同步函数，放进线程执行；None 表示不备份
+        backup: Callable[[bool], Path] | None = None,  # 同步函数（参数=是否手动），放进线程执行；None 表示不备份
     ):
         self._store = store
         self._writer = writer
@@ -52,7 +53,8 @@ class Scheduler:
         retry = self._not_before.get("writer")
         if retry is not None:
             due = max(due, retry)
-        last_backup = self._store.get_job_last_run("backup")
+        runs = [t for t in (self._store.get_job_last_run(j) for j in BACKUP_JOBS) if t]
+        last_backup = max(runs) if runs else None
         state = "running" if "writer" in self._running else (
             "retrying" if "writer" in self._errors else ("waiting" if pending else "idle")
         )
@@ -65,8 +67,8 @@ class Scheduler:
             "reflector_running": "reflector" in self._running,
             "reflector_error": self._errors.get("reflector"),
             "last_backup_at": last_backup.isoformat() if last_backup else None,
-            "backup_running": "backup" in self._running,
-            "backup_error": self._errors.get("backup"),
+            "backup_running": any(j in self._running for j in BACKUP_JOBS),
+            "backup_error": next((self._errors[j] for j in BACKUP_JOBS if j in self._errors), None),
         }
 
     def notify_activity(self) -> None:
@@ -107,10 +109,10 @@ class Scheduler:
 
         async def job():
             nonlocal path
-            path = await asyncio.to_thread(self._backup)
+            path = await asyncio.to_thread(self._backup, True)
 
-        if not await self._run("backup", job, self._backup_lock, force=True):
-            raise BackupError(self._errors.get("backup", "备份失败，请查看运行日志"))
+        if not await self._run("backup_manual", job, self._backup_lock, force=True):
+            raise BackupError(self._errors.get("backup_manual", "备份失败，请查看运行日志"))
         assert path is not None
         return path
 
@@ -129,7 +131,7 @@ class Scheduler:
         await self._run("reflector", self._reflector.run)
 
     async def _run_backup(self) -> None:
-        await self._run("backup", lambda: asyncio.to_thread(self._backup), self._backup_lock)
+        await self._run("backup", lambda: asyncio.to_thread(self._backup, False), self._backup_lock)
 
     async def _run(self, name: str, job: Callable[[], Awaitable], lock: asyncio.Lock | None = None, force: bool = False) -> bool:
         not_before = self._not_before.get(name)
@@ -142,6 +144,9 @@ class Scheduler:
                 self._store.set_job_last_run(name, self._now())
                 self._errors.pop(name, None)
                 self._not_before.pop(name, None)
+                if name in BACKUP_JOBS:  # 任一次备份成功，旧的备份错误就不用再显示
+                    for j in BACKUP_JOBS:
+                        self._errors.pop(j, None)
             except Exception as e:
                 log.exception("%s 运行失败，%s 分钟后重试", name, int(FAILURE_BACKOFF.total_seconds() // 60))
                 self._not_before[name] = self._now() + FAILURE_BACKOFF
@@ -149,7 +154,7 @@ class Scheduler:
                 self._errors[name] = (
                     "模型返回格式不正确" if isinstance(e, LLMBadJSON) else
                     e.user_message if isinstance(e, (LLMError, BackupError)) else
-                    "备份失败，请查看运行日志" if name == "backup" else "后台处理出错，请查看运行终端"
+                    "备份失败，请查看运行日志" if name in BACKUP_JOBS else "后台处理出错，请查看运行终端"
                 )
                 return False
             finally:
