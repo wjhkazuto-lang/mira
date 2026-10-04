@@ -3,6 +3,7 @@
 import html
 import json
 import logging
+import sys
 import threading
 import urllib.request
 from pathlib import Path
@@ -54,6 +55,10 @@ def message_page(title: str, body: str) -> str:
     return _PAGE.format(title=html.escape(title), body=html.escape(body))
 
 
+def error_page(body: str, log_file: Path) -> str:
+    return message_page("Mira 没能启动", f"{body}\n日志在：{log_file}")
+
+
 LOADING_PAGE = message_page("Mira 正在醒来…", "第一次启动需要下载约 90MB 的模型，请稍等")
 
 
@@ -97,6 +102,9 @@ class ServerThread(threading.Thread):
         except EmbedderLoadError as e:
             log.exception("模型加载失败")
             self.error = str(e)
+        except FileNotFoundError as e:
+            log.exception("服务启动失败")
+            self.error = f"启动失败：找不到文件：{e.filename}"
         except SystemExit:  # uvicorn 绑定端口失败时会 sys.exit
             log.exception("服务没能启动")
             self.error = f"启动失败：服务没能在端口 {self.settings.port} 上开始运行，详情见日志。"
@@ -178,7 +186,7 @@ def _on_quit(window, server: ServerThread | None) -> None:
         log.warning("注册退出处理失败", exc_info=True)
 
 
-def _watch(window, server: ServerThread | None, url: str, icon: Path) -> None:
+def _watch(window, server: ServerThread | None, url: str, icon: Path, log_file: Path) -> None:
     """在 pywebview 的线程里跑：等服务就绪（或出错）后切换页面。"""
     _set_dock_icon(icon)
     if server is None:
@@ -188,11 +196,11 @@ def _watch(window, server: ServerThread | None, url: str, icon: Path) -> None:
             window.load_url(url)
             return
         if server.error is not None:
-            window.load_html(message_page("Mira 没能启动", server.error))
+            window.load_html(error_page(server.error, log_file))
             return
 
 
-def _open_window(html_page: str | None = None, url: str = "", server: ServerThread | None = None,
+def _open_window(log_file: Path, html_page: str | None = None, url: str = "", server: ServerThread | None = None,
                  icon: Path | None = None) -> None:
     """有 html_page 就先显示它（url 是服务就绪后要切过去的地址），否则直接打开 url。"""
     import webview
@@ -202,31 +210,43 @@ def _open_window(html_page: str | None = None, url: str = "", server: ServerThre
     )
     _set_app_name()
     _on_quit(window, server)
-    webview.start(func=_watch, args=(window, server, url, icon or PROJECT_ROOT / "theme" / "mira" / "avatar.png"))
+    icon = icon or PROJECT_ROOT / "theme" / "mira" / "avatar.png"
+    webview.start(func=_watch, args=(window, server, url, icon, log_file))
 
 
 def main() -> None:
+    """正常关窗口时返回（退出码 0）；出了意外就记进日志并以 1 退出，好让 Mira.app 弹出提示。"""
+    try:
+        _run()
+    except Exception:
+        log.exception("Mira 意外退出")  # 日志文件还没配好时，这条会打到终端
+        sys.exit(1)
+
+
+def _run() -> None:
     try:
         settings = load_settings()
     except ConfigError as e:
-        setup_logging(PROJECT_ROOT / "data" / "logs" / "mira.log")
+        log_file = PROJECT_ROOT / "data" / "logs" / "mira.log"
+        setup_logging(log_file)
         log.error("配置出错：%s", e)
-        _open_window(html_page=message_page("Mira 没能启动", str(e)))
+        _open_window(html_page=error_page(str(e), log_file), log_file=log_file)
         return
-    setup_logging(settings.db_path.parent / "logs" / "mira.log")
+    log_file = settings.db_path.parent / "logs" / "mira.log"
+    setup_logging(log_file)
     icon = settings.theme_dir / "mira" / "avatar.png"
     url = f"http://{settings.host}:{settings.port}/"
     state = probe_port(settings.host, settings.port)
     log.info("桌面版启动，端口 %s 状态：%s", settings.port, state)
     if state == "other":
-        _open_window(html_page=message_page("Mira 没能启动", _port_taken_text(settings.port)), icon=icon)
+        _open_window(html_page=error_page(_port_taken_text(settings.port), log_file), icon=icon, log_file=log_file)
     elif state == "mira":
-        _open_window(url=url, icon=icon)  # 已经有一个 Mira 在跑，只开窗口，不另起服务
+        _open_window(url=url, icon=icon, log_file=log_file)  # 已经有一个 Mira 在跑，只开窗口，不另起服务
     else:
         server = ServerThread(settings)
         server.start()
         try:
-            _open_window(html_page=LOADING_PAGE, url=url, server=server, icon=icon)
+            _open_window(html_page=LOADING_PAGE, url=url, server=server, icon=icon, log_file=log_file)
         finally:
             server.stop()
             log.info("Mira 已停止")

@@ -3,9 +3,11 @@ import logging
 import socket
 import threading
 
+import pytest
 import uvicorn
 
-from mira.config import load_settings
+import mira.desktop as desktop
+from mira.config import ConfigError, load_settings
 from mira.desktop import ServerThread, message_page, probe_port, setup_logging
 from mira.main import create_app
 
@@ -81,6 +83,7 @@ def test_server_thread_reports_chinese_error_on_bad_persona(tmp_path):
     assert not thread.is_alive()
     assert not thread.ready.is_set()
     assert thread.error and "启动失败" in thread.error
+    assert f"找不到文件：{tmp_path / 'missing.md'}" in thread.error  # 不是英文的 Errno 原文
 
 
 def test_server_thread_starts_and_stops(tmp_path, caplog):
@@ -114,3 +117,93 @@ def test_setup_logging_writes_file(tmp_path):
             if h not in before:
                 root.removeHandler(h)
                 h.close()
+
+
+class FakeWindow:
+    def __init__(self):
+        self.events = type("E", (), {"closed": threading.Event()})()
+        self.html = None
+
+    def load_html(self, page):
+        self.html = page
+
+
+class FakeServer:
+    def __init__(self, error):
+        self.ready = threading.Event()
+        self.error = error
+
+
+def test_watch_error_page_shows_log_path(tmp_path):
+    window = FakeWindow()
+    log_file = tmp_path / "日志 目录" / "mira.log"
+    desktop._watch(window, FakeServer("启动失败：坏了 <b>"), "http://x/", tmp_path / "none.png", log_file)
+    assert "Mira 没能启动" in window.html and "启动失败：坏了 &lt;b&gt;" in window.html
+    assert f"日志在：{log_file}" in window.html
+
+
+@pytest.fixture
+def no_gui(monkeypatch):
+    """main() 里不开真窗口、不写真日志，记下每次 _open_window 的参数。"""
+    calls = []
+    monkeypatch.setattr(desktop, "_open_window", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(desktop, "setup_logging", lambda path: calls.append({"log": path}))
+    return calls
+
+
+def test_config_error_page_shows_log_path(no_gui, monkeypatch):
+    def bad():
+        raise ConfigError("PORT 必须是数字")
+
+    monkeypatch.setattr(desktop, "load_settings", bad)
+    desktop.main()
+    log_file = desktop.PROJECT_ROOT / "data" / "logs" / "mira.log"
+    page = no_gui[-1]["html_page"]
+    assert "PORT 必须是数字" in page and f"日志在：{log_file}" in page
+
+
+def test_port_taken_page_shows_log_path(tmp_path, no_gui, monkeypatch):
+    settings = fake_settings(tmp_path)
+    monkeypatch.setattr(desktop, "load_settings", lambda: settings)
+    monkeypatch.setattr(desktop, "probe_port", lambda h, p: "other")
+    desktop.main()
+    assert f"日志在：{tmp_path / 'logs' / 'mira.log'}" in no_gui[-1]["html_page"]
+
+
+def test_main_returns_normally_when_window_closed(tmp_path, no_gui, monkeypatch):
+    settings = fake_settings(tmp_path)
+    monkeypatch.setattr(desktop, "load_settings", lambda: settings)
+    monkeypatch.setattr(desktop, "probe_port", lambda h, p: "mira")
+    desktop.main()  # 关窗口 = webview.start() 返回，不能抛 SystemExit，进程退出码才是 0
+    assert no_gui[-1]["url"] == f"http://127.0.0.1:{settings.port}/"
+
+
+def test_main_logs_crash_and_exits_nonzero(tmp_path, no_gui, monkeypatch, caplog):
+    settings = fake_settings(tmp_path)
+    monkeypatch.setattr(desktop, "load_settings", lambda: settings)
+    monkeypatch.setattr(desktop, "probe_port", lambda h, p: "mira")
+
+    def boom(**kw):
+        raise ImportError("No module named 'webview'")
+
+    monkeypatch.setattr(desktop, "_open_window", boom)
+    with pytest.raises(SystemExit) as e:
+        desktop.main()
+    assert e.value.code == 1
+    rec = [r for r in caplog.records if r.levelno >= logging.ERROR][-1]
+    assert rec.exc_info and "webview" in str(rec.exc_info[1])
+
+
+def test_main_exits_nonzero_when_logging_setup_fails(tmp_path, monkeypatch, caplog):
+    settings = fake_settings(tmp_path)
+    monkeypatch.setattr(desktop, "load_settings", lambda: settings)
+
+    def no_perm(path):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(desktop, "setup_logging", no_perm)
+    monkeypatch.setattr(desktop, "_open_window", lambda **kw: pytest.fail("不该开窗口"))
+    with pytest.raises(SystemExit) as e:
+        desktop.main()
+    assert e.value.code == 1
+    assert any(r.exc_info for r in caplog.records)  # 没有日志文件时 log.exception 会落到 stderr
