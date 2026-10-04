@@ -1,4 +1,6 @@
+import contextlib
 import inspect
+import time
 
 import numpy as np
 import pytest
@@ -21,10 +23,30 @@ def app(tmp_path):
     return create_app(settings)
 
 
+@contextlib.contextmanager
+def started_client(app):
+    # 等启动任务（含启动备份）结束再碰数据库，否则两个线程会同时用同一个连接
+    with TestClient(app, base_url="http://127.0.0.1:8000") as c:
+        assert app.state.startup_done.wait(5)
+        yield c
+
+
 @pytest.fixture
 def client(app):
-    with TestClient(app, base_url="http://127.0.0.1:8000") as c:
+    with started_client(app) as c:
         yield c
+
+
+def test_startup_done_waits_for_slow_startup_backup(app):
+    original = app.state.scheduler._backup
+
+    def slow_backup():
+        time.sleep(0.3)
+        return original()
+
+    app.state.scheduler._backup = slow_backup
+    with started_client(app):
+        assert app.state.store.get_job_last_run("backup") is not None
 
 
 def add(app, type, content, **kw):
@@ -246,7 +268,8 @@ def test_theme_api_and_static(tmp_path):
     (theme / "mira" / "calm.png").write_bytes(b"\x89PNG")
     settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(theme),
                               "BACKUP_DIR": str(tmp_path / "backups")})
-    with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as c:
+    app = create_app(settings)
+    with started_client(app) as c:
         data = c.get("/api/theme").json()
         assert data["expressions"] == {"calm": "/theme/mira/calm.png"} and data["backgrounds"] == {}
         assert c.get("/theme/mira/calm.png").content == b"\x89PNG"
@@ -270,7 +293,8 @@ def test_video_background_supports_range_requests(tmp_path):
     (theme / "background" / "night.mp4").write_bytes(b"0123456789")
     settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(theme),
                               "BACKUP_DIR": str(tmp_path / "backups")})
-    with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as c:
+    app = create_app(settings)
+    with started_client(app) as c:
         assert c.get("/api/theme").json()["backgrounds"] == {"night": "/theme/background/night.mp4"}
         r = c.get("/theme/background/night.mp4", headers={"Range": "bytes=2-5"})
         assert r.status_code == 206 and r.content == b"2345"
@@ -293,7 +317,8 @@ def test_backup_endpoint_failure_is_500_with_chinese(tmp_path):
     blocker.write_text("x")  # 备份目录指向普通文件，必然失败
     settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(tmp_path / "no-theme"),
                               "BACKUP_DIR": str(blocker)})
-    with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as c:
+    app = create_app(settings)
+    with started_client(app) as c:
         r = c.post("/api/backup")
         assert r.status_code == 500 and r.json()["detail"].startswith("备份失败")
         assert c.get("/api/memory-status").json()["backup_error"].startswith("备份失败")

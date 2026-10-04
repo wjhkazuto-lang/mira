@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -61,7 +62,10 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         async def background():
-            await scheduler.startup()
+            try:
+                await scheduler.startup()
+            finally:
+                app.state.startup_done.set()  # 测试和其他线程可以等它，避免在启动任务还在写库时并发访问
             await scheduler.run_forever()
 
         task = asyncio.create_task(background())
@@ -88,6 +92,7 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
             response.headers.setdefault("Cache-Control", "no-cache")
         return response
 
+    app.state.startup_done = threading.Event()
     app.state.store = store
     app.state.embedder = embedder
     app.state.engine = engine
