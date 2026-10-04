@@ -443,13 +443,23 @@ class SignalWindow:
             def is_set(hook):
                 return self.shown.is_set()
 
+            def wait(hook, timeout=None):
+                return self.shown.wait(timeout)
+
         self.events = type("E", (), {})()
         self.events.shown = Shown()
 
-    def show(self):
+    def show(self, between=None):
+        """和 pywebview 一样：先在另一个线程里跑 shown 钩子，再把 shown 设为已发生。
+        between 在钩子跑过之后、shown 设好之前调用，用来模拟这中间到达的信号。"""
+        t = threading.Thread(target=lambda: [fn() for fn in self.on_shown])
+        t.start()
+        t.join(0.2)
+        if between:
+            between()
         self.shown.set()
-        for fn in self.on_shown:
-            fn()
+        t.join(5)
+        assert not t.is_alive()
 
     def destroy(self):
         assert self.shown.is_set(), "窗口还没显示时 destroy 会卡 20 秒再报错"
@@ -472,6 +482,13 @@ def test_signal_before_shown_closes_once_shown():
     window.show()
     assert window.destroyed == 1
     handle(2)  # 已经在关了，不重复关
+    assert window.destroyed == 1
+
+
+def test_signal_between_shown_hooks_and_event_still_closes():
+    window = SignalWindow()
+    handle = desktop._signal_handler(window)
+    window.show(between=lambda: handle(15))
     assert window.destroyed == 1
 
 

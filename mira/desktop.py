@@ -252,6 +252,8 @@ def _signal_handler(window):
         window.destroy()
 
     def on_shown() -> None:
+        # pywebview 先在另一个线程跑钩子、再标记“已显示”；等它标好再看，免得中间来的信号两边都漏掉
+        window.events.shown.wait(5)
         if state["wanted"]:
             close()
 
