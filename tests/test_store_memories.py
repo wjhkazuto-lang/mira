@@ -141,3 +141,22 @@ def test_change_memory_type(store):
     assert got.type == "idea"
     with pytest.raises(ValueError):
         store.update_memory(m.id, actor="user", type="dream")
+
+
+def test_delete_restores_memories_it_superseded(store):
+    old, other = add(store, content="喜欢猫"), add(store, content="无关")
+    new = add(store, content="喜欢狗")
+    store.update_memory(old.id, actor="writer", superseded_by=new.id)
+    store.delete_memory(new.id, actor="user")
+    assert store.get_memory(old.id).superseded_by is None
+    assert store.get_memory(other.id).superseded_by is None
+    entry = next(e for e in store.recent_log() if e.memory_id == old.id)
+    assert entry.actor == "user" and entry.op == "update"
+
+
+def test_delete_rolls_back_restore_on_failure(store):
+    old, new = add(store, content="喜欢猫"), add(store, content="喜欢狗")
+    store.update_memory(old.id, actor="writer", superseded_by=new.id)
+    with pytest.raises(KeyError):
+        store.delete_memory(999, actor="user")
+    assert store.get_memory(old.id).superseded_by == new.id

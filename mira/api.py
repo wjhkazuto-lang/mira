@@ -87,7 +87,7 @@ def build_router(store: Store, retriever: Retriever, embedder: Embedder) -> APIR
         given = body.model_fields_set
         if not given:
             raise HTTPException(422, "没有要修改的内容")
-        fields: dict = {"user_locked": True}
+        fields: dict = {}
         new_type = m.type
         if "type" in given:
             if m.type not in CONVERTIBLE_TYPES or body.type not in CONVERTIBLE_TYPES:
@@ -117,6 +117,8 @@ def build_router(store: Store, retriever: Retriever, embedder: Embedder) -> APIR
                 fields["due_at"] = date.fromisoformat(body.due_at) if body.due_at else None
             except ValueError:
                 raise HTTPException(422, "日期格式应为 YYYY-MM-DD") from None
+        if given & {"content", "type", "due_at", "importance"}:  # 只改状态（打勾）不算人工锁定
+            fields["user_locked"] = True
         vector = embedder.embed([fields["content"]])[0] if "content" in fields else None
         return memory_dict(store.update_memory(id, actor="user", vector=vector, **fields))
 

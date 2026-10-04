@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 FAILURE_BACKOFF = timedelta(minutes=30)  # 失败后等一会儿再试，避免反复花钱调用模型
 BACKUP_INTERVAL = timedelta(hours=24)
+REFLECT_MIN_GAP = timedelta(hours=12)  # 两次反思之间至少隔这么久（启动补跑后不再马上凌晨又跑）
 
 
 class Scheduler:
@@ -93,7 +94,7 @@ class Scheduler:
             await self._run_writer()
         today_at_hour = now.replace(hour=self._settings.reflect_hour, minute=0, second=0, microsecond=0)
         last = self._store.get_job_last_run("reflector")
-        if now >= today_at_hour and (last is None or last < today_at_hour):
+        if now >= today_at_hour and (last is None or (last < today_at_hour and now - last >= REFLECT_MIN_GAP)):
             await self._run_reflector()
         if self._backup_due():
             await self._run_backup()

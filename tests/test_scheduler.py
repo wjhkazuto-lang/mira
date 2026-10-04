@@ -339,3 +339,22 @@ async def test_no_backup_callable_means_disabled(store, clock):
     assert st["last_backup_at"] is None and st["backup_running"] is False and st["backup_error"] is None
     with pytest.raises(RuntimeError):
         await s.backup_now()
+
+
+async def test_no_4am_reflect_within_12h_of_startup_run(store, clock):
+    at(clock, "2026-10-03T22:00:00+08:00")
+    s, _, r = make(store, clock)
+    await s.startup()
+    assert r.runs == 1
+    at(clock, "2026-10-04T04:05:00+08:00")
+    await s.tick()
+    assert r.runs == 1
+
+
+async def test_4am_reflect_after_12h_gap(store, clock):
+    at(clock, "2026-10-03T15:00:00+08:00")
+    s, _, r = make(store, clock)
+    await s.startup()
+    at(clock, "2026-10-04T04:05:00+08:00")
+    await s.tick()
+    assert r.runs == 2

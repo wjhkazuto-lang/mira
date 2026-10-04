@@ -240,3 +240,29 @@ async def test_writer_prompt_explains_intent_levels_and_self_judgment(store, clo
     for word in ("idea", "goal", "commitment", "宁可往低一档", "自我评价"):
         assert word in prompt
     assert f"#{g.id}" in prompt
+
+
+async def test_second_op_on_same_id_skipped(store, clock):
+    m = mem(store, "fact", "喜欢猫")
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [
+        {"op": "supersede", "id": m.id, "new": {"type": "fact", "content": "喜欢狗"}},
+        {"op": "update", "id": m.id, "content": "喜欢兔子"},
+    ], "episode": EPISODE}])
+    result = await w.run()
+    assert result.applied == 1 and any(f"同一批里已经改过 #{m.id}" in s for s in result.skipped)
+    facts = [x for x in store.list_memories("fact")]
+    assert {x.content for x in facts} == {"喜欢猫", "喜欢狗"}  # 没有孤儿“喜欢兔子”
+    assert store.get_memory(m.id).content == "喜欢猫"
+
+
+async def test_update_then_set_status_same_id_skipped(store, clock):
+    c = mem(store, "commitment", "改简历", status="open")
+    chat(store)
+    w, _ = make_writer(store, clock, [{"ops": [
+        {"op": "update", "id": c.id, "importance": 5},
+        {"op": "set_status", "id": c.id, "status": "done"},
+    ], "episode": EPISODE}])
+    result = await w.run()
+    assert result.applied == 1 and store.get_memory(c.id).status == "open"
+    assert any("同一批里已经改过" in s for s in result.skipped)

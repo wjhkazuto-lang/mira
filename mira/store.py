@@ -295,6 +295,13 @@ class Store:
         row = self._db.execute("SELECT * FROM memories WHERE id=?", (id,)).fetchone()
         return _memory(row) if row else None
 
+    def existing_memory_ids(self, ids: Iterable[int]) -> set[int]:
+        ids = list(ids)
+        if not ids:
+            return set()
+        rows = self._db.execute(f"SELECT id FROM memories WHERE id IN ({','.join('?' * len(ids))})", ids)
+        return {r[0] for r in rows}
+
     def update_memory(self, id: int, *, actor: str, vector: np.ndarray | None = None, **fields) -> Memory:
         unknown = set(fields) - _UPDATABLE
         if unknown:
@@ -331,6 +338,8 @@ class Store:
             before = self.get_memory(id)
             if before is None:
                 raise KeyError(id)
+            for (old_id,) in self._db.execute("SELECT id FROM memories WHERE superseded_by=?", (id,)).fetchall():
+                self.update_memory(old_id, actor=actor, superseded_by=None)  # 被它取代的旧记忆恢复
             self._db.execute("DELETE FROM memories WHERE id=?", (id,))
             self._log(id, actor, "delete", _snapshot(before), None)
 

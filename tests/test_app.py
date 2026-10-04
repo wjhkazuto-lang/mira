@@ -327,3 +327,30 @@ def test_backup_endpoint_failure_is_500_with_chinese(tmp_path):
 def test_app_tests_never_write_real_backups():
     real = PROJECT_ROOT / "data" / "backups"
     assert not real.exists() or not [p for p in real.iterdir() if not p.name.startswith(("mira-", "dev-"))]
+
+
+def test_patch_status_only_does_not_lock(client, app):
+    c = add(app, "commitment", "改简历", status="open")
+    r = client.patch(f"/api/memories/{c.id}", json={"status": "done"})
+    assert r.json()["status"] == "done" and r.json()["user_locked"] is False
+
+
+def test_patch_status_only_keeps_existing_lock(client, app):
+    c = add(app, "commitment", "改简历", status="open", user_locked=True)
+    r = client.patch(f"/api/memories/{c.id}", json={"status": "done"})
+    assert r.json()["status"] == "done" and r.json()["user_locked"] is True
+
+
+def test_patch_importance_only_still_locks(client, app):
+    m = add(app, "fact", "喜欢猫")
+    assert client.patch(f"/api/memories/{m.id}", json={"importance": 4}).json()["user_locked"] is True
+
+
+def test_delete_superseding_memory_restores_old(client, app):
+    old = add(app, "fact", "喜欢猫")
+    new = add(app, "fact", "喜欢狗")
+    app.state.store.update_memory(old.id, actor="writer", superseded_by=new.id)
+    assert old.id in {m["id"] for m in client.get("/api/memories").json()}  # 列表含已过时的
+    assert client.get(f"/api/memories/{old.id}").json()["superseded_by"] == new.id
+    client.delete(f"/api/memories/{new.id}")
+    assert client.get(f"/api/memories/{old.id}").json()["superseded_by"] is None

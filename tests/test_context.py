@@ -167,3 +167,14 @@ def test_parse_reply_expression():
 
 def test_rules_include_expression_hint():
     assert "立绘提示ABC" in render("chat_rules", crisis_resources="X", expression_hint="立绘提示ABC")
+
+
+def test_pattern_count_ignores_deleted_evidence(store, clock):
+    from mira.context import with_live_evidence
+    e1 = store.add_memory("episode", "聊了面试", vector=V, actor="w")
+    e2 = store.add_memory("episode", "又聊了面试", vector=V, actor="w")
+    pat = store.add_memory("pattern", "压力大时熬夜", vector=V, actor="w", evidence=[e1.id, e2.id])
+    assert format_memory(with_live_evidence(store, [pat])[0]).count("出现 2 次") == 1
+    store.delete_memory(e2.id, actor="user")
+    live = with_live_evidence(store, [pat, e1])
+    assert "出现 1 次" in format_memory(live[0]) and live[1] is e1

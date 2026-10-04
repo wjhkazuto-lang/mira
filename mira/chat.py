@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from mira import clock
 from mira.config import Settings
-from mira.context import Reply, build_chat_messages, parse_reply
+from mira.context import Reply, build_chat_messages, parse_reply, with_live_evidence
 from mira.llm import LLM, LLMBadJSON, LLMError
 from mira.retriever import Retriever
 from mira.store import Message, Store
@@ -189,7 +189,9 @@ class ChatEngine:
         new = self._store.messages_in_batch(batch_id)
         history = self._store.recent_messages(self._settings.recent_history_tokens, exclude_batch=batch_id)
         query = "\n".join(m.content for m in history[-HISTORY_TAIL_FOR_QUERY:] + new)
-        memories = [s.memory for s in self._retriever.search(query, self._settings.retrieve_top_k)]
+        memories = with_live_evidence(
+            self._store, [s.memory for s in self._retriever.search(query, self._settings.retrieve_top_k)]
+        )
         commitments = self._store.open_commitments()
         goals = self._store.open_goals()
         profile = self._store.current_profile()

@@ -1,9 +1,9 @@
 """组装发给聊天模型的上下文，并解析它的回复（spec §4 第 4、5 步）。"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
-from mira.store import APPROACHES, Memory, Message
+from mira.store import APPROACHES, Memory, Message, Store
 
 MAX_BUBBLES = 6
 _WEEKDAYS = "一二三四五六日"
@@ -19,6 +19,15 @@ def format_gap(last: datetime | None, now: datetime) -> str:
     if seconds < 86400:
         return f"{int(seconds // 3600)} 小时"
     return f"{int(seconds // 86400)} 天"
+
+
+def with_live_evidence(store: Store, memories: list[Memory]) -> list[Memory]:
+    """模式的证据可能已被删除；去掉不存在的编号（一次查询），让“出现 N 次”只数还在的。"""
+    ids = {e for m in memories if m.type == "pattern" for e in m.evidence}
+    live = store.existing_memory_ids(ids)
+    return [
+        replace(m, evidence=[e for e in m.evidence if e in live]) if m.type == "pattern" else m for m in memories
+    ]
 
 
 def format_memory(m: Memory) -> str:
