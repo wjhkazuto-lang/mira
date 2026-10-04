@@ -6,7 +6,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from mira.config import load_settings
+from mira.config import PROJECT_ROOT, load_settings
 from mira.main import create_app
 
 # TestClient 的 websocket_connect 会忽略 base_url，必须写完整地址
@@ -16,7 +16,8 @@ WS = "ws://127.0.0.1:8000/ws"
 @pytest.fixture
 def app(tmp_path):
     settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "DEBOUNCE_SECONDS": "0",
-                              "THEME_DIR": str(tmp_path / "no-theme")})  # 不读你真实的 theme/ 素材
+                              "THEME_DIR": str(tmp_path / "no-theme"),  # 不读你真实的 theme/ 素材
+                              "BACKUP_DIR": str(tmp_path / "backups")})
     return create_app(settings)
 
 
@@ -170,7 +171,8 @@ async def test_lifespan_catches_up_and_processes_new_messages(tmp_path):
     """真实应用生命周期 + 调度器 + 写入器 + SQLite；只替换付费模型和时钟等待。"""
     import asyncio
 
-    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "lifecycle.db"), "IDLE_WRITE_MINUTES": "0"})
+    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "lifecycle.db"), "IDLE_WRITE_MINUTES": "0",
+                              "BACKUP_DIR": str(tmp_path / "backups")})
     app = create_app(settings)
     store = app.state.store
     scheduler = app.state.scheduler
@@ -242,7 +244,8 @@ def test_theme_api_and_static(tmp_path):
     theme = tmp_path / "theme"
     (theme / "mira").mkdir(parents=True)
     (theme / "mira" / "calm.png").write_bytes(b"\x89PNG")
-    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(theme)})
+    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(theme),
+                              "BACKUP_DIR": str(tmp_path / "backups")})
     with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as c:
         data = c.get("/api/theme").json()
         assert data["expressions"] == {"calm": "/theme/mira/calm.png"} and data["backgrounds"] == {}
@@ -265,9 +268,37 @@ def test_video_background_supports_range_requests(tmp_path):
     theme = tmp_path / "theme"
     (theme / "background").mkdir(parents=True)
     (theme / "background" / "night.mp4").write_bytes(b"0123456789")
-    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(theme)})
+    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(theme),
+                              "BACKUP_DIR": str(tmp_path / "backups")})
     with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as c:
         assert c.get("/api/theme").json()["backgrounds"] == {"night": "/theme/background/night.mp4"}
         r = c.get("/theme/background/night.mp4", headers={"Range": "bytes=2-5"})
         assert r.status_code == 206 and r.content == b"2345"
         assert r.headers["content-type"] == "video/mp4"
+
+
+def test_backup_endpoint(client, tmp_path):
+    r = client.post("/api/backup")
+    assert r.status_code == 200 and r.json()["file"].startswith("t-")
+    assert (tmp_path / "backups" / r.json()["file"]).exists()
+    assert client.get("/api/memory-status").json()["last_backup_at"]
+
+
+def test_backup_endpoint_rejects_cross_site(client):
+    assert client.post("/api/backup", headers={"Origin": "http://evil.example"}).status_code == 403
+
+
+def test_backup_endpoint_failure_is_500_with_chinese(tmp_path):
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x")  # 备份目录指向普通文件，必然失败
+    settings = load_settings({"MIRA_FAKE": "1", "DB_PATH": str(tmp_path / "t.db"), "THEME_DIR": str(tmp_path / "no-theme"),
+                              "BACKUP_DIR": str(blocker)})
+    with TestClient(create_app(settings), base_url="http://127.0.0.1:8000") as c:
+        r = c.post("/api/backup")
+        assert r.status_code == 500 and r.json()["detail"].startswith("备份失败")
+        assert c.get("/api/memory-status").json()["backup_error"].startswith("备份失败")
+
+
+def test_app_tests_never_write_real_backups():
+    real = PROJECT_ROOT / "data" / "backups"
+    assert not real.exists() or not [p for p in real.iterdir() if not p.name.startswith(("mira-", "dev-"))]

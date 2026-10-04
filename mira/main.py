@@ -7,12 +7,14 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from mira import clock
 from mira.api import build_router
+from mira.backup import BackupError, run_backup
 from mira.chat import ChatEngine
 from mira.config import Settings
 from mira.embedder import Embedder, FastEmbedder
@@ -41,7 +43,10 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
     retriever = Retriever(store, embedder)
     writer = Writer(store, embedder, retriever, llm, settings)
     reflector = Reflector(store, embedder, llm, settings)
-    scheduler = Scheduler(store=store, writer=writer, reflector=reflector, settings=settings)
+    scheduler = Scheduler(
+        store=store, writer=writer, reflector=reflector, settings=settings,
+        backup=lambda: run_backup(settings.db_path, settings.backup_dir, settings.backup_keep, clock.now()),
+    )
     engine = ChatEngine(
         store=store,
         retriever=retriever,
@@ -91,6 +96,14 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
     @app.get("/api/memory-status")
     async def memory_status():
         return scheduler.status()
+
+    @app.post("/api/backup")
+    async def backup_now():
+        try:
+            path = await scheduler.backup_now()
+        except BackupError as e:
+            raise HTTPException(500, e.user_message)
+        return {"file": path.name, "at": clock.now().isoformat()}
 
     app.include_router(build_router(store, retriever, embedder))
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

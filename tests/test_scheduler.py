@@ -1,9 +1,11 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
+from mira.backup import BackupError
 from mira.config import load_settings
 from mira.scheduler import Scheduler
 from tests.conftest import FakeClock
@@ -39,9 +41,9 @@ class Job:
             raise RuntimeError("boom")
 
 
-def make(store, clock, writer=None, reflector=None):
+def make(store, clock, writer=None, reflector=None, backup=None):
     writer, reflector = writer or Job(), reflector or Job()
-    return Scheduler(store=store, writer=writer, reflector=reflector, settings=SETTINGS, now=clock.now), writer, reflector
+    return Scheduler(store=store, writer=writer, reflector=reflector, settings=SETTINGS, now=clock.now, backup=backup), writer, reflector
 
 
 def at(clock, iso):
@@ -204,3 +206,136 @@ async def test_status_while_writer_in_flight(store, clock):
     finally:
         release.set()
         await task
+
+
+class Backup:
+    def __init__(self, fail=False):
+        self.runs = 0
+        self.fail = fail
+
+    def __call__(self):
+        self.runs += 1
+        if self.fail:
+            raise BackupError("备份失败：磁盘已满")
+        return Path(f"/tmp/mira-{self.runs}.db")
+
+
+async def test_startup_backs_up_when_never_done(store, clock):
+    b = Backup()
+    s, _, _ = make(store, clock, backup=b)
+    await s.startup()
+    assert b.runs == 1
+    assert store.get_job_last_run("backup") == clock.now()
+    assert s.status()["last_backup_at"] == clock.now().isoformat()
+
+
+async def test_startup_backs_up_before_writer(store, clock):
+    order = []
+    b = Backup()
+    orig = b.__call__
+
+    class W(Job):
+        async def run(self):
+            order.append("writer")
+
+    def backup():
+        order.append("backup")
+        return orig()
+
+    s, _, _ = make(store, clock, writer=W(), backup=backup)
+    store.add_message("user", "hi")
+    await s.startup()
+    assert order == ["backup", "writer"]
+
+
+async def test_backup_not_repeated_within_24h(store, clock):
+    b = Backup()
+    s, _, _ = make(store, clock, backup=b)
+    await s.startup()
+    clock.advance(23 * 3600)
+    await s.tick()
+    assert b.runs == 1
+
+
+async def test_backup_after_24h(store, clock):
+    b = Backup()
+    s, _, _ = make(store, clock, backup=b)
+    await s.startup()
+    clock.advance(24 * 3600)
+    await s.tick()
+    assert b.runs == 2
+
+
+async def test_backup_failure_backs_off_30min_and_reports(store, clock):
+    b = Backup(fail=True)
+    s, _, _ = make(store, clock, backup=b)
+    await s.startup()
+    assert b.runs == 1 and s.status()["backup_error"] == "备份失败：磁盘已满"
+    assert store.get_job_last_run("backup") is None
+    clock.advance(29 * 60)
+    await s.tick()
+    assert b.runs == 1
+    clock.advance(2 * 60)
+    await s.tick()
+    assert b.runs == 2
+
+
+async def test_backup_unexpected_error_is_generic(store, clock):
+    def boom():
+        raise OSError("/secret/path")
+
+    s, _, _ = make(store, clock, backup=boom)
+    await s.startup()
+    assert s.status()["backup_error"] == "备份失败，请查看运行日志"
+
+
+async def test_backup_does_not_wait_for_model_lock(store, clock):
+    release = asyncio.Event()
+
+    class Blocked(Job):
+        async def run(self):
+            await release.wait()
+
+    b = Backup()
+    s, _, _ = make(store, clock, writer=Blocked(), backup=b)
+    store.add_message("user", "hi")
+    clock.advance(10 * 60)
+    task = asyncio.create_task(s.tick())
+    try:
+        await asyncio.sleep(0.05)  # 写入器已经占着模型锁
+        assert await asyncio.wait_for(s.backup_now(), 1)
+        assert b.runs == 1
+    finally:
+        release.set()
+        await task
+
+
+async def test_backup_now_ignores_interval_and_raises_on_failure(store, clock):
+    b = Backup()
+    s, _, _ = make(store, clock, backup=b)
+    await s.startup()
+    await s.backup_now()
+    assert b.runs == 2
+    b.fail = True
+    with pytest.raises(BackupError):
+        await s.backup_now()
+    assert s.status()["backup_error"] == "备份失败：磁盘已满"
+    b.fail = False
+    await s.backup_now()  # 失败退避也不拦手动备份
+    assert b.runs == 4 and s.status()["backup_error"] is None
+
+
+async def test_status_has_backup_fields(store, clock):
+    s, _, _ = make(store, clock, backup=Backup())
+    assert {"last_backup_at", "backup_running", "backup_error"} <= set(s.status())
+
+
+async def test_no_backup_callable_means_disabled(store, clock):
+    s, _, _ = make(store, clock)
+    await s.startup()
+    clock.advance(48 * 3600)
+    await s.tick()
+    st = s.status()
+    assert st["last_backup_at"] is None and st["backup_running"] is False and st["backup_error"] is None
+    with pytest.raises(RuntimeError):
+        await s.backup_now()
