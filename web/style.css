@@ -208,6 +208,13 @@ textarea.profile { min-height: 320px; }
 .empty { color: var(--muted); font-size: 14px; padding: 20px 0; text-align: center; }
 .memory-status { padding: 14px 16px; border: 1px solid var(--muted); border-radius: 12px; font-size: 14px; line-height: 1.7; }
 .memory-status.error { border-color: #d69880; }
+.status-row { display: flex; align-items: center; gap: 10px; }
+.status-row .memory-status { flex: 1; min-width: 0; margin: 0; word-break: break-word; }
+.status-row button { flex: none; }
+@media (max-width: 600px) {
+  .status-row { flex-direction: column; align-items: stretch; }
+  .status-row button { align-self: flex-start; }
+}
 
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg);
   padding: 8px 16px; border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }

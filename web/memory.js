@@ -26,6 +26,7 @@
   const toastEl = document.getElementById("toast");
 
   const statusEl = document.getElementById("memory-status");
+  const backupBtn = document.getElementById("backup-now");
   let listSnapshot = "";
   let profileSnapshot = "";
   function interacting() {
@@ -155,13 +156,30 @@
       if (s.last_success_at) text += ` · 上次整理成功：${fmt(s.last_success_at)}`;
       if (s.reflector_running) text += " · 正在更新每日反思";
       if (s.reflector_error) text += ` · 每日反思未完成：${s.reflector_error}，稍后自动重试`;
+      text += s.last_backup_at ? ` · 上次备份：${fmt(s.last_backup_at)}` : " · 还没有备份";
+      if (s.backup_running) text += " · 正在备份";
+      if (s.backup_error) text += ` · ${s.backup_error}，30 分钟后自动重试`;
       statusEl.textContent = text;
-      statusEl.className = s.error || s.reflector_error ? "memory-status error" : "memory-status";
+      statusEl.className = s.error || s.reflector_error || s.backup_error ? "memory-status error" : "memory-status";
     } catch {
       statusEl.textContent = "无法获取整理状态，请确认 Mira 正在运行且已重启到新版";
       statusEl.className = "memory-status error";
     }
   }
+
+  backupBtn.addEventListener("click", async () => {
+    backupBtn.disabled = true;
+    backupBtn.textContent = "备份中…";
+    try {
+      const { file } = await api("/api/backup", { method: "POST" });
+      toast("已备份：" + file);
+      await loadStatus();
+    } catch { /* api 已经提示了错误 */ }
+    finally {
+      backupBtn.disabled = false;
+      backupBtn.textContent = "立即备份";
+    }
+  });
 
   async function refresh(automatic = false) {
     await Promise.all([loadList(automatic), loadLog(automatic), loadStatus()]);

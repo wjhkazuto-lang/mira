@@ -13,7 +13,10 @@
       <a href="/">回到聊天</a>
     </header>
     <section>
-      <p id="memory-status" role="status" aria-live="polite">正在检查整理状态…</p>
+      <div class="status-row">
+        <p id="memory-status" role="status" aria-live="polite">正在检查整理状态…</p>
+        <button id="backup-now" type="button">立即备份</button>
+      </div>
       <h2>最近她记住了什么</h2>
       <ul class="log-list" id="log"></ul>
       <div class="tabs" id="tabs"></div>
