@@ -33,6 +33,12 @@ class Settings:
     theme_dir: Path = Path("theme")
     backup_dir: Path = Path("data/backups")
     backup_keep: int = 14
+    proactive: bool = True  # 主动关心总开关
+    proactive_max_per_day: int = 1  # 每天最多几条主动消息（每周信不算）
+    proactive_quiet_hours: str = "22-8"  # 安静时段，格式 开始-结束，可跨夜
+    weekly_letter_weekday: int = 6  # 每周信：0=周一 … 6=周日
+    weekly_letter_hour: int = 20  # 每周信几点发（24 小时制）
+    notifications: bool = True  # 0 = 只进聊天、不弹系统通知
     host: str = "127.0.0.1"
     port: int = 8000
     fake: bool = False
@@ -44,6 +50,18 @@ _MISSING_KEY_HINT = (
     "然后在 DEEPSEEK_API_KEY= 后面填入你的 DeepSeek API key。\n"
     "如果只是想先试用界面，可以设置 MIRA_FAKE=1（开发模式，使用假回复）。"
 )
+
+
+def parse_quiet_hours(hours: str) -> tuple[int, int]:
+    """把 "22-8" 解析成 (22, 8)；格式不对或越界就抛 ConfigError。"""
+    parts = hours.split("-")
+    try:
+        start, end = int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):
+        raise ConfigError(f"PROACTIVE_QUIET_HOURS 的格式应为 开始-结束（如 22-8）：{hours!r}") from None
+    if len(parts) != 2 or not (0 <= start <= 23 and 0 <= end <= 23):
+        raise ConfigError(f"PROACTIVE_QUIET_HOURS 的格式应为 开始-结束（如 22-8）：{hours!r}")
+    return start, end
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -59,6 +77,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         raw = env.get(f.name.upper())
         if raw is None or raw == "":
             continue
+        if f.name in ("proactive", "notifications"):  # bool("0") 是 True，得按 "1"/"0" 解析
+            values[f.name] = raw == "1"
+            continue
         try:
             values[f.name] = f.type(raw)
         except ValueError as e:
@@ -69,6 +90,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         values["persona_path"] = Path("persona.local.md")
     if values.get("fake") and "db_path" not in values:
         values["db_path"] = Path("data/dev.db")  # 开发模式默认用单独的数据库，免得假数据混进真记忆
+    if values.get("fake") and "proactive" not in values:
+        values["proactive"] = False  # 开发模式默认不主动开口（要用就显式 PROACTIVE=1）
     for key in ("db_path", "persona_path", "theme_dir", "backup_dir"):
         path = values.get(key, getattr(Settings, key))
         values[key] = path if path.is_absolute() else PROJECT_ROOT / path
@@ -81,6 +104,13 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         raise ConfigError(f"REFLECT_HOUR 必须是 0 到 23：{settings.reflect_hour}")
     if settings.backup_keep < 1:
         raise ConfigError(f"BACKUP_KEEP 必须是大于等于 1 的整数：{settings.backup_keep}")
+    if settings.proactive_max_per_day < 1:
+        raise ConfigError(f"PROACTIVE_MAX_PER_DAY 必须是大于等于 1 的整数：{settings.proactive_max_per_day}")
+    if not 0 <= settings.weekly_letter_weekday <= 6:
+        raise ConfigError(f"WEEKLY_LETTER_WEEKDAY 必须是 0 到 6（0=周一）：{settings.weekly_letter_weekday}")
+    if not 0 <= settings.weekly_letter_hour <= 23:
+        raise ConfigError(f"WEEKLY_LETTER_HOUR 必须是 0 到 23：{settings.weekly_letter_hour}")
+    parse_quiet_hours(settings.proactive_quiet_hours)  # 格式不对时抛 ConfigError
     if not settings.fake and not settings.deepseek_api_key:
         raise ConfigError(_MISSING_KEY_HINT)
     return settings

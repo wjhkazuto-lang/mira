@@ -100,3 +100,27 @@ def test_latest_message_excluding_batch(store, clock):
     assert store.latest_message(exclude_batch="b").content == "旧"
     assert store.latest_message(exclude_batch="a").content == "新"
     assert store.latest_message() .content == "新"
+
+
+def test_unprocessed_user_messages_ignores_assistant(store):
+    store.add_message("user", "hi")
+    store.add_message("assistant", "在", meta={"proactive": {"kind": "missing"}})
+    assert [m.role for m in store.unprocessed_user_messages()] == ["user"]
+    assert store.pending_user_message_count() == 1
+    store.mark_processed([1])
+    assert store.pending_user_message_count() == 0
+    assert store.unprocessed_user_messages() == []
+
+
+def test_latest_user_message_skips_assistant(store):
+    assert store.latest_user_message() is None
+    store.add_message("user", "一")
+    store.add_message("assistant", "二")
+    assert store.latest_user_message().content == "一"
+
+
+def test_latest_user_message_excludes_batch(store):
+    store.add_message("user", "旧", batch_id="a")
+    store.add_message("user", "新", batch_id="b")
+    assert store.latest_user_message(exclude_batch="b").content == "旧"
+    assert store.latest_user_message(exclude_batch="a").content == "新"

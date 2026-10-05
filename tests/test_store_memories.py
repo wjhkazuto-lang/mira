@@ -117,7 +117,7 @@ def test_deleted_ids_never_reused(store):
 
 
 def test_schema_version_set(store):
-    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert store._db.execute("PRAGMA user_version").fetchone()[0] == 2
 
 
 def test_idea_and_goal_types(store):

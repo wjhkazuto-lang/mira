@@ -95,3 +95,39 @@ def test_backup_defaults_and_paths():
 def test_backup_keep_invalid(v):
     with pytest.raises(ConfigError):
         load_settings({"DEEPSEEK_API_KEY": "k", "BACKUP_KEEP": v})
+
+
+def test_proactive_defaults():
+    s = load_settings({"DEEPSEEK_API_KEY": "k"})
+    assert s.proactive is True and s.proactive_max_per_day == 1
+    assert s.proactive_quiet_hours == "22-8" and s.notifications is True
+    assert (s.weekly_letter_weekday, s.weekly_letter_hour) == (6, 20)
+
+
+def test_proactive_fake_default_and_explicit_switch():
+    assert load_settings({"MIRA_FAKE": "1"}).proactive is False
+    assert load_settings({"MIRA_FAKE": "1", "PROACTIVE": "1"}).proactive is True
+    assert load_settings({"DEEPSEEK_API_KEY": "k", "PROACTIVE": "0"}).proactive is False
+    assert load_settings({"DEEPSEEK_API_KEY": "k", "NOTIFICATIONS": "0"}).notifications is False
+
+
+def test_proactive_env_overrides():
+    s = load_settings({
+        "DEEPSEEK_API_KEY": "k", "PROACTIVE_MAX_PER_DAY": "2", "PROACTIVE_QUIET_HOURS": "23-7",
+        "WEEKLY_LETTER_WEEKDAY": "0", "WEEKLY_LETTER_HOUR": "9",
+    })
+    assert (s.proactive_max_per_day, s.proactive_quiet_hours) == (2, "23-7")
+    assert (s.weekly_letter_weekday, s.weekly_letter_hour) == (0, 9)
+
+
+@pytest.mark.parametrize("env", [
+    {"PROACTIVE_QUIET_HOURS": "25-8"},
+    {"PROACTIVE_QUIET_HOURS": "abc"},
+    {"PROACTIVE_QUIET_HOURS": "8"},
+    {"PROACTIVE_MAX_PER_DAY": "0"},
+    {"WEEKLY_LETTER_WEEKDAY": "7"},
+    {"WEEKLY_LETTER_HOUR": "24"},
+])
+def test_proactive_invalid_values(env):
+    with pytest.raises(ConfigError):
+        load_settings({"DEEPSEEK_API_KEY": "k", **env})

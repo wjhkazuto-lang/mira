@@ -17,7 +17,7 @@ MEMORY_TYPES = ("fact", "person", "idea", "goal", "commitment", "pattern", "epis
 COMMITMENT_STATUSES = ("open", "done", "dropped", "overdue")
 APPROACHES = ("comfort", "normal", "raise_issue", "crisis")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2 = 加了 proactive_log（CREATE IF NOT EXISTS，旧库打开时自动补）
 
 # memories 用 AUTOINCREMENT：删掉的编号不会再被新记忆占用，否则模式的证据会指向不相关的内容
 SCHEMA = """
@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS memory_vectors(memory_id INTEGER PRIMARY KEY REFERENC
 CREATE TABLE IF NOT EXISTS core_profile(id INTEGER PRIMARY KEY, content TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS memory_log(id INTEGER PRIMARY KEY, memory_id INTEGER, actor TEXT NOT NULL, op TEXT NOT NULL, before_json TEXT, after_json TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS job_state(name TEXT PRIMARY KEY, last_run_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS proactive_log(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, ref_type TEXT, ref_id INTEGER, created_at TEXT NOT NULL);
 """
 
 
@@ -249,6 +250,23 @@ class Store:
             return None
         return row["batch_id"]
 
+    def unprocessed_user_messages(self) -> list[Message]:
+        """未处理的用户消息。主动消息（助手）不算：它们等用户回复后一起被整理。"""
+        rows = self._db.execute("SELECT * FROM messages WHERE processed=0 AND role='user' ORDER BY id")
+        return [_message(r) for r in rows]
+
+    def pending_user_message_count(self) -> int:
+        return self._db.execute("SELECT count(*) FROM messages WHERE processed=0 AND role='user'").fetchone()[0]
+
+    def latest_user_message(self, exclude_batch: str | None = None) -> Message | None:
+        row = self._db.execute(
+            "SELECT * FROM messages WHERE role='user' AND batch_id IS NOT ? ORDER BY id DESC LIMIT 1"
+            if exclude_batch is not None
+            else "SELECT * FROM messages WHERE role='user' ORDER BY id DESC LIMIT 1",
+            (exclude_batch,) if exclude_batch is not None else (),
+        ).fetchone()
+        return _message(row) if row else None
+
     # ---------- memories ----------
 
     def add_memory(
@@ -448,3 +466,28 @@ class Store:
                 " ON CONFLICT(name) DO UPDATE SET last_run_at=excluded.last_run_at",
                 (name, when.isoformat()),
             )
+
+    # ---------- 主动关心 ----------
+
+    def add_proactive_log(self, kind: str, ref_type: str | None = None, ref_id: int | None = None) -> None:
+        with self.transaction():
+            self._db.execute(
+                "INSERT INTO proactive_log(kind, ref_type, ref_id, created_at) VALUES (?,?,?,?)",
+                (kind, ref_type, ref_id, self._ts()),
+            )
+
+    def last_proactive_at(self) -> datetime | None:
+        row = self._db.execute("SELECT created_at FROM proactive_log ORDER BY id DESC LIMIT 1").fetchone()
+        return datetime.fromisoformat(row["created_at"]) if row else None
+
+    def proactive_count_on(self, day: date) -> int:
+        """某天开口了几次（不含每周信——它不受每天上限约束）。"""
+        rows = self._db.execute("SELECT created_at FROM proactive_log WHERE kind != 'weekly_letter'").fetchall()
+        return sum(1 for r in rows if datetime.fromisoformat(r["created_at"]).date() == day)
+
+    def last_proactive_ref(self, ref_type: str, ref_id: int) -> datetime | None:
+        row = self._db.execute(
+            "SELECT created_at FROM proactive_log WHERE ref_type=? AND ref_id=? ORDER BY id DESC LIMIT 1",
+            (ref_type, ref_id),
+        ).fetchone()
+        return datetime.fromisoformat(row["created_at"]) if row else None
