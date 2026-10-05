@@ -1,0 +1,7 @@
+{"name": "承诺逾期 + 两天没聊 → 开口提这一件",
+ "now": "2026-10-05T10:00:00+08:00",
+ "seed_memories": [{"type": "commitment", "content": "周五前把材料交给王老师", "status": "open", "due_at": "2026-10-02"}],
+ "messages": [{"role": "user", "content": "材料我还没写完，有点头疼", "ago_minutes": 3010},
+              {"role": "assistant", "content": "别熬太狠，先休息一下再看", "ago_minutes": 3005}],
+ "run": "proactive",
+ "expect": {"speak": true, "kind": "commitment", "contains": "材料", "calls": 1}}

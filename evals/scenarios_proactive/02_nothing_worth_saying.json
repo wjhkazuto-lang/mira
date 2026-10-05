@@ -1,0 +1,7 @@
+{"name": "风平浪静 → 沉默且不调模型",
+ "now": "2026-10-05T10:00:00+08:00",
+ "seed_memories": [],
+ "messages": [{"role": "user", "content": "今天天气不错", "ago_minutes": 480},
+              {"role": "assistant", "content": "嗯，出门走走挺好", "ago_minutes": 479}],
+ "run": "proactive",
+ "expect": {"speak": false, "calls": 0}}

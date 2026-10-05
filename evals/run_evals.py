@@ -1,4 +1,4 @@
-"""记忆质量评估：用虚构对话跑真实的写入器/反思器，检查记住的东西对不对。
+"""质量评估：用虚构对话跑真实的记忆写入器/反思器，也跑主动消息/每周信场景，检查表现对不对。
 
 会调用真实的 DeepSeek API（跑一遍约几分钱）。用法：
     uv run python evals/run_evals.py          # 运行前会让你确认
@@ -8,7 +8,7 @@
 import asyncio
 import json
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +19,10 @@ sys.path.insert(0, str(ROOT))
 from mira.store import Store  # noqa: E402
 
 SCENARIO_DIR = Path(__file__).resolve().parent / "scenarios"
+PROACTIVE_DIR = Path(__file__).resolve().parent / "scenarios_proactive"
+
+async def _instant(_seconds: float) -> None:
+    await asyncio.sleep(0)  # 评测里气泡不用真的等
 
 
 def load_scenarios() -> list[dict]:
@@ -90,14 +94,103 @@ async def run_scenario(scenario: dict, llm, embedder, settings) -> list[str]:
     return check(store, scenario["expect"])
 
 
+class _Clock:
+    """可改的假时钟：给内存数据库定"现在"。"""
+
+    def __init__(self, t: datetime):
+        self.t = t
+
+    def __call__(self) -> datetime:
+        return self.t
+
+
+class _CountingLLM:
+    """包一层真 LLM，数"这一轮问了几次模型"（沉默场景要求零次）。"""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.calls = 0
+
+    async def complete_json(self, **kw):
+        self.calls += 1
+        return await self.inner.complete_json(**kw)
+
+
+def load_proactive_scenarios() -> list[dict]:
+    return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(PROACTIVE_DIR.glob("*.json"))]
+
+
+async def run_proactive_scenario(scenario: dict, llm, embedder, settings) -> list[str]:
+    """跑一个主动消息/每周信场景，返回不满足的期望（中文）；全满足返回空列表。"""
+    from mira.chat import ChatEngine
+    from mira.prompts import render
+    from mira.proactive import ProactiveEngine
+    from mira.retriever import Retriever
+
+    now = datetime.fromisoformat(scenario["now"])
+    clock = _Clock(now)
+    store = Store(":memory:", now=clock)
+    for m in scenario.get("seed_memories", []):
+        clock.t = now - timedelta(minutes=m.get("ago_minutes", 0))
+        store.add_memory(
+            m["type"], m["content"], vector=embedder.embed([m["content"]])[0], actor="seed",
+            status=m.get("status"), importance=m.get("importance", 3),
+            due_at=date.fromisoformat(m["due_at"]) if m.get("due_at") else None,
+        )
+    seeded_ids = set()
+    for m in scenario.get("messages", []):
+        clock.t = now - timedelta(minutes=m.get("ago_minutes", 0))
+        seeded_ids.add(store.add_message(m["role"], m["content"]).id)
+    clock.t = now
+
+    counting = _CountingLLM(llm)
+    retriever = Retriever(store, embedder, now=clock)
+    persona = settings.persona_path.read_text(encoding="utf-8")
+    rules = render("chat_rules", crisis_resources=settings.crisis_resources, expression_hint="")
+    chat = ChatEngine(store=store, retriever=retriever, llm=counting, settings=settings,
+                      persona=persona, rules=rules, now=clock, sleep=_instant)
+    proactive = ProactiveEngine(store=store, llm=counting, retriever=retriever, settings=settings,
+                                engine=chat, persona=persona, rules=rules, now=clock)
+
+    expect = scenario["expect"]
+    if scenario["run"] == "weekly":
+        if proactive.weekly_ready():
+            await proactive.run_weekly()
+    elif proactive.ready():  # 和调度器一样：闸门不过就什么都不做
+        await proactive.run()
+
+    spoken = [m for m in store.list_messages() if m.role == "assistant" and m.id not in seeded_ids]
+    failures: list[str] = []
+    if expect.get("speak") is True and not spoken:
+        failures.append("期望开口，但什么都没说")
+    if expect.get("speak") is False and spoken:
+        failures.append(f"期望沉默，但说了：{spoken[0].content[:40]}")
+    if "calls" in expect and counting.calls != expect["calls"]:
+        failures.append(f"模型调用了 {counting.calls} 次，期望 {expect['calls']} 次")
+    if "kind" in expect and spoken:
+        got = spoken[0].meta.get("proactive", {}).get("kind")
+        if got != expect["kind"]:
+            failures.append(f"开口原因 kind={got}，期望 {expect['kind']}")
+    if "contains" in expect and spoken:
+        if not any(expect["contains"] in m.content for m in spoken):
+            failures.append(f"没有一条提到“{expect['contains']}”：{[m.content[:30] for m in spoken]}")
+    if "bubbles_min" in expect and len(spoken) < expect["bubbles_min"]:
+        failures.append(f"说了 {len(spoken)} 条，期望至少 {expect['bubbles_min']} 条")
+    if "bubbles_max" in expect and len(spoken) > expect["bubbles_max"]:
+        failures.append(f"说了 {len(spoken)} 条，期望最多 {expect['bubbles_max']} 条")
+    return failures
+
+
 async def main() -> int:
     from mira.config import load_settings
     from mira.embedder import FastEmbedder
     from mira.llm import DeepSeekLLM
 
     scenarios = load_scenarios()
+    proactive_scenarios = load_proactive_scenarios()
+    total = len(scenarios) + len(proactive_scenarios)
     if "--yes" not in sys.argv:
-        answer = input(f"将用真实的 DeepSeek API 跑 {len(scenarios)} 个场景（约几分钱）。继续吗？[y/N] ")
+        answer = input(f"将用真实的 DeepSeek API 跑 {total} 个场景（约几分钱）。继续吗？[y/N] ")
         if answer.strip().lower() != "y":
             print("已取消")
             return 1
@@ -118,8 +211,20 @@ async def main() -> int:
         else:
             passed += 1
             print(f"✓ {s['name']}")
-    print(f"\n通过 {passed}/{len(scenarios)}")
-    return 0 if passed == len(scenarios) else 1
+    for s in proactive_scenarios:
+        try:
+            failures = await run_proactive_scenario(s, llm, embedder, settings)
+        except Exception as e:
+            failures = [f"运行出错：{e}"]
+        if failures:
+            print(f"✗ [主动] {s['name']}")
+            for f in failures:
+                print(f"    - {f}")
+        else:
+            passed += 1
+            print(f"✓ [主动] {s['name']}")
+    print(f"\n通过 {passed}/{total}")
+    return 0 if passed == total else 1
 
 
 if __name__ == "__main__":

@@ -1,0 +1,7 @@
+{"name": "刚聊过（人在场）→ 沉默且不调模型",
+ "now": "2026-10-05T10:00:00+08:00",
+ "seed_memories": [{"type": "commitment", "content": "周五前把材料交给王老师", "status": "open", "due_at": "2026-10-02"}],
+ "messages": [{"role": "user", "content": "我再改改材料", "ago_minutes": 20},
+              {"role": "assistant", "content": "好，注意休息", "ago_minutes": 19}],
+ "run": "proactive",
+ "expect": {"speak": false, "calls": 0}}

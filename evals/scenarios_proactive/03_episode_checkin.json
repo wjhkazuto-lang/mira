@@ -1,0 +1,7 @@
+{"name": "昨天的情绪事件 → 次日温暖回访",
+ "now": "2026-10-05T10:00:00+08:00",
+ "seed_memories": [{"type": "episode", "content": "10-04 面试没过，很沮丧，但说想再试一次", "ago_minutes": 1200, "importance": 3}],
+ "messages": [{"role": "user", "content": "面试没过…有点难受", "ago_minutes": 1205},
+              {"role": "assistant", "content": "抱抱。难受是正常的", "ago_minutes": 1200}],
+ "run": "proactive",
+ "expect": {"speak": true, "kind": "checkin", "calls": 1}}
