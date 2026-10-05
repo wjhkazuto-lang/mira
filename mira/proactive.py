@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 MAX_BUBBLES = 3  # 主动消息最多几条气泡
 BUBBLE_CHARS = 300  # 单条气泡最长多少字（模型偶尔会写长）
 TRANSCRIPT_LINES = 20  # 给模型看的最近对话条数
+WEEKLY_MAX_BUBBLES = 4  # 每周信可以比平时长一点
+WEEKLY_BUBBLE_CHARS = 500
+WEEKLY_MIN_USER_GAP = timedelta(minutes=10)  # 用户刚说完话就先不发信，等他聊完
 _WEEKDAYS = "一二三四五六日"
 
 MIN_USER_GAP = timedelta(hours=4)  # 距最后一条用户消息不足这么久就不开口（人在场）
@@ -37,6 +40,15 @@ def quiet_now(hours: str, now: datetime) -> bool:
     if start <= end:
         return start <= now.hour < end
     return now.hour >= start or now.hour < end
+
+
+def weekly_target(now: datetime, weekday: int, hour: int) -> datetime:
+    """最近的"该发每周信"时刻（已经过去的那一个；本周还没到点就算上周的）。"""
+    days_since = (now.weekday() - weekday) % 7
+    target = (now - timedelta(days=days_since)).replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target > now:
+        target -= timedelta(days=7)
+    return target
 
 
 @dataclass
@@ -250,3 +262,85 @@ class ProactiveEngine:
                 self._notifier.notify("Mira", clip_text(decision.messages[0], 120))
             except Exception:
                 log.warning("发送提醒失败", exc_info=True)
+
+    # ---------- 每周信 ----------
+
+    def weekly_ready(self) -> bool:
+        if not self._settings.proactive:
+            return False
+        now = self._now()
+        target = weekly_target(now, self._settings.weekly_letter_weekday, self._settings.weekly_letter_hour)
+        last = self._store.get_job_last_run("weekly_letter")
+        if last is not None and last >= target:
+            return False  # 这一轮的已经发过了
+        return self._weekly_recheck()
+
+    def _weekly_recheck(self) -> bool:
+        """发信前后都查：用户正在聊（或刚说完话）就先不发，下轮再试。"""
+        last_user = self._store.latest_user_message()
+        if last_user is not None and self._now() - last_user.created_at < WEEKLY_MIN_USER_GAP:
+            return False
+        return not self._engine.busy()
+
+    async def run_weekly(self) -> bool | None:
+        """写每周信。返回 False = 这次没发成（下轮再试、不记 job_state）；None/True = 本轮结束。"""
+        if not self._weekly_recheck():
+            return False
+        now = self._now()
+        week_ago = now - timedelta(days=7)
+        episodes = [
+            m for m in self._store.list_memories("episode", include_superseded=False) if m.created_at >= week_ago
+        ]
+        fresh = [
+            m for m in self._store.list_memories(include_superseded=False)
+            if m.type != "episode" and m.created_at >= week_ago
+        ]
+        profile = self._store.current_profile()
+        open_items = self._store.open_commitments() + self._store.open_goals()
+        prompt = render(
+            "weekly",
+            now=f"{now.strftime('%Y-%m-%d')} 周{_WEEKDAYS[now.weekday()]}",
+            week_events="\n".join(f"- {format_memory(m)}" for m in episodes + fresh) or "（这周没什么新的事情）",
+            profile=profile.content if profile else "（还没有档案）",
+            open_items="\n".join(f"- {format_memory(m)}" for m in open_items) or "（没有）",
+        )
+        messages = [
+            {"role": "system", "content": f"{self._persona}\n\n{self._rules}"},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            data = await self._llm.complete_json(
+                purpose="weekly",
+                model=self._settings.chat_model,
+                messages=messages,
+                max_tokens=1500,
+                temperature=self._settings.chat_temperature,
+            )
+        except LLMBadJSON:
+            log.warning("每周信：模型返回的 JSON 解析不了，这周跳过")
+            return None  # 记 job_state：本周不再试，别每 30 秒重烧一次
+        raw = data.get("messages")
+        texts = (
+            [clip_text(m.strip(), WEEKLY_BUBBLE_CHARS) for m in raw if isinstance(m, str) and m.strip()]
+            if isinstance(raw, list)
+            else []
+        )
+        texts = texts[:WEEKLY_MAX_BUBBLES]
+        if not texts:
+            log.warning("每周信：模型没给出内容，这周跳过")
+            return None
+        if not self._weekly_recheck():
+            return False  # 模型写作的这几十秒里用户回来了 → 下轮再试
+        expression = data.get("expression") if isinstance(data.get("expression"), str) else None
+        if not await self._engine.announce_proactive(
+            texts, meta={"proactive": {"kind": "weekly_letter", "reason": "每周信"}}, expression=expression
+        ):
+            return False
+        self._store.add_proactive_log("weekly_letter")
+        log.info("每周信已发出（%d 条）", len(texts))
+        if self._notifier is not None and self._settings.notifications:
+            try:
+                self._notifier.notify("Mira", clip_text(texts[0], 120))
+            except Exception:
+                log.warning("发送提醒失败", exc_info=True)
+        return True

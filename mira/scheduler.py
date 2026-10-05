@@ -31,7 +31,7 @@ class Scheduler:
         now: Callable[[], datetime] = clock.now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         backup: Callable[[bool], Path] | None = None,  # 同步函数（参数=是否手动），放进线程执行；None 表示不备份
-        proactive=None,  # 有 ready() -> bool 和 run()；None 表示不主动开口
+        proactive=None,  # 有 ready()/run()/weekly_ready()/run_weekly()；None 表示不主动开口
     ):
         self._store = store
         self._writer = writer
@@ -87,13 +87,22 @@ class Scheduler:
     def _proactive_due(self) -> bool:
         return self._proactive is not None and self._proactive.ready()
 
+    def _weekly_due(self) -> bool:
+        return self._proactive is not None and self._proactive.weekly_ready()
+
+    async def _run_proactive_jobs(self) -> None:
+        """每周信优先；这一轮发过信就不再加一条普通开口。"""
+        if self._weekly_due():
+            await self._run("weekly_letter", self._proactive.run_weekly)
+        elif self._proactive_due():  # 昨晚的话先变成记忆，“打开先说”才有准头
+            await self._run("proactive", self._proactive.run)
+
     async def startup(self) -> None:
         if self._backup_due():  # 先留快照，再让模型改记忆
             await self._run_backup()
         if self._store.unprocessed_user_messages():
             await self._run_writer()
-        if self._proactive_due():  # 昨晚的话先变成记忆，“打开先说”才有准头
-            await self._run("proactive", self._proactive.run)
+        await self._run_proactive_jobs()
         last = self._store.get_job_last_run("reflector")
         if last is None or self._now() - last > timedelta(hours=24):
             await self._run_reflector()
@@ -103,8 +112,7 @@ class Scheduler:
         idle = now - self._last_activity >= timedelta(minutes=self._settings.idle_write_minutes)
         if idle and self._store.unprocessed_user_messages():
             await self._run_writer()
-        if self._proactive_due():
-            await self._run("proactive", self._proactive.run)
+        await self._run_proactive_jobs()
         today_at_hour = now.replace(hour=self._settings.reflect_hour, minute=0, second=0, microsecond=0)
         last = self._store.get_job_last_run("reflector")
         # 离上次至少 12 小时才跑凌晨这次；Mac 凌晨在睡觉时，满 24 小时也补跑，保证每天一次
@@ -153,8 +161,9 @@ class Scheduler:
         async with lock or self._lock:
             self._running.add(name)
             try:
-                await job()
-                self._store.set_job_last_run(name, self._now())
+                result = await job()
+                if result is not False:  # 任务明确说"这次没做"（比如用户正好在聊）就不记时间，下轮再试
+                    self._store.set_job_last_run(name, self._now())
                 self._errors.pop(name, None)
                 self._not_before.pop(name, None)
                 if name in BACKUP_JOBS:  # 任一次备份成功，旧的备份错误就不用再显示

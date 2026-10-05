@@ -53,6 +53,8 @@ class EchoLLM:
             return {"patterns": [], "profile": ""}
         if purpose == "proactive":
             return {"speak": False, "reason": "开发模式"}
+        if purpose == "weekly":
+            return {"messages": ["（开发模式的每周信）", "这周就到这，下周见。"], "expression": "gentle"}
         last = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         said = last.split("【新消息】", 1)[-1].strip()
         return {

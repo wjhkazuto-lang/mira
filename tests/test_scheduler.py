@@ -452,15 +452,24 @@ async def test_status_backup_error_prefers_manual_when_both(store, clock):
 
 
 class Proactive:
-    def __init__(self, ready=True):
+    def __init__(self, ready=True, weekly=False):
         self.ready_flag = ready
+        self.weekly_flag = weekly
         self.runs = 0
+        self.weekly_runs = 0
 
     def ready(self):
         return self.ready_flag
 
+    def weekly_ready(self):
+        return self.weekly_flag
+
     async def run(self):
         self.runs += 1
+
+    async def run_weekly(self):
+        self.weekly_runs += 1
+        return True
 
 
 async def test_startup_order_writer_proactive_reflector(store, clock):
@@ -529,3 +538,47 @@ async def test_startup_writer_skips_assistant_only(store, clock):
     s, w, _ = make(store, clock)
     await s.startup()
     assert w.runs == 0
+
+
+async def test_weekly_letter_runs_and_skips_proactive_same_pass(store, clock):
+    p = Proactive(weekly=True)
+    s, _, _ = make(store, clock, proactive=p)
+    await s.tick()
+    assert p.weekly_runs == 1 and p.runs == 0  # 发信那一轮不再加一条普通开口
+    assert store.get_job_last_run("weekly_letter") == clock.now()
+
+
+async def test_weekly_letter_false_not_recorded_and_retried(store, clock):
+    class P(Proactive):
+        async def run_weekly(self):
+            self.weekly_runs += 1
+            return self.weekly_runs > 1  # 第一次说"没做成"（比如用户正好在聊）
+
+    p = P(weekly=True)
+    s, _, _ = make(store, clock, proactive=p)
+    await s.tick()
+    assert p.weekly_runs == 1 and store.get_job_last_run("weekly_letter") is None
+    await s.tick()
+    assert p.weekly_runs == 2 and store.get_job_last_run("weekly_letter") == clock.now()
+
+
+async def test_startup_weekly_runs_before_reflect(store, clock):
+    order = []
+
+    class P(Proactive):
+        def weekly_ready(self):
+            return True
+
+        async def run_weekly(self):
+            order.append("weekly")
+
+        async def run(self):
+            order.append("proactive")
+
+    class R(Job):
+        async def run(self):
+            order.append("reflector")
+
+    s, _, _ = make(store, clock, reflector=R(), proactive=P())
+    await s.startup()
+    assert order == ["weekly", "reflector"]
