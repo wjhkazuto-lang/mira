@@ -384,8 +384,9 @@ def _run() -> None:
     else:
         notifier = make_notifier(notifications=settings.notifications, fake=settings.fake)
         _watch_activation(notifier)  # 窗口回到前台时清掉 Dock 上的圆点
-        if os.environ.get("MIRA_TEST_NOTIFY") == "1":  # 排查用：启动几秒后跳一次 Dock 图标
-            threading.Timer(4.0, lambda: notifier.notify("Mira", "测试提醒")).start()
+        if os.environ.get("MIRA_TEST_NOTIFY") == "1":  # 排查用：启动后跳两次（留时间切到别的应用，模拟真实场景）
+            for delay in (8.0, 20.0):
+                threading.Timer(delay, lambda: notifier.notify("Mira", "测试提醒")).start()
         server = ServerThread(settings, notifier=notifier)
         server.start()
         try:

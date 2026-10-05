@@ -23,10 +23,14 @@ def _on_main(func) -> None:
 
 
 def _dock_attention() -> None:
-    from AppKit import NSApplication, NSInformationalRequest
+    from AppKit import NSApplication, NSCriticalRequest
+    from PyObjCTools import AppHelper
 
     app = NSApplication.sharedApplication()
-    app.requestUserAttention_(NSInformationalRequest)  # 跳一下
+    # App 在前台时系统会忽略"求关注"（真实场景里用户在别的应用里，跳得起来）；
+    # 用 critical 连续跳，最多 3 秒就取消——醒目，但不至于烦人
+    request_id = app.requestUserAttention_(NSCriticalRequest)
+    AppHelper.callLater(3, app.cancelUserAttentionRequest_, request_id)
     tile = app.dockTile()
     tile.setShowsApplicationBadge_(True)
     tile.setBadgeLabel_("●")
