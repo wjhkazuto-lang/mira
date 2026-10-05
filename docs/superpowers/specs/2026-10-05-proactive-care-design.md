@@ -1,7 +1,7 @@
 # Mira 主动关心（主动消息）设计文档
 
 - 日期：2026-10-05
-- 状态：已通过（2026-10-05）；实施计划：`docs/superpowers/plans/2026-10-05-proactive-care.md`
+- 状态：已实现（2026-10-05）；设计：本文档；实施计划：`docs/superpowers/plans/2026-10-05-proactive-care.md`
 - 范围：主动消息（v2 的第一块）——打开 App 时先说、Mac 系统通知、每周信
 
 ## 1. 目标
@@ -111,7 +111,7 @@ tick（每 30 秒）/ App 启动
 - 只在 Mira.app（bundle 模式）里启用：用 `NSBundle.mainBundle().bundleIdentifier()` 判断（`local.mira.desktop`）；终端模式用 `NullNotifier`（消息照常进聊天，只是不弹）。
 - `NOTIFICATIONS=0` 可关；权限被拒 → 记一次日志，静默降级成"只进聊天"。
 - 通知里显示具体内容（用户已确认）。
-- **实测结果（2026-10-05）**：系统通知走不通——launcher 是 shell 脚本、exec 到 uv 的 python 之后进程的 bundle 身份是空的，`UNUserNotificationCenter` 认不出 Mira.app（而且要签名；pywebview 自带的 pyobjc 也没装 UserNotifications 模块）。按备选方案执行：**Dock 图标跳动（`requestUserAttention`）+ 圆点徽标（`dockTile.setBadgeLabel_`）**，点 Dock 图标回到窗口；窗口回到前台或用户开口时圆点消失。代价：提醒本身不带文字（原用户选择"显示具体内容"做不到）——内容在聊天里。
+- **实测结果（2026-10-05）**：系统通知走不通——launcher 是 shell 脚本、exec 到 uv 的 python 之后进程的 bundle 身份是空的，`UNUserNotificationCenter` 认不出 Mira.app（而且要签名；pywebview 自带的 pyobjc 也没装 UserNotifications 模块）。按备选方案执行：**Dock 图标跳动（`requestUserAttention`）+ 圆点徽标（`dockTile.setBadgeLabel_`）**，点 Dock 图标回到窗口；窗口回到前台或用户开口时圆点消失。代价：提醒本身不带文字（原用户选择"显示具体内容"做不到）——内容在聊天里。用户真机复验（2026-10-05）：跳动和圆点都正常；App 在前台时系统会忽略求关注，跳动只在 Mira 不处于前台时可见。
 
 ## 5. 配置（`.env` 新增，都有默认值）
 

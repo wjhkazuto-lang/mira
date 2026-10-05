@@ -126,7 +126,7 @@ Mira 的性格写在一份 Markdown 文件里，`personas/` 里有 5 个现成�
 uv run pytest                          # 单元测试（不调用 API，不花钱）
 node --test tests/web/sync.test.js     # 前端消息合并逻辑的测试（需要 Node.js）
 RUN_SLOW=1 uv run pytest -m slow       # 测试真实的向量模型（需要联网下载）
-uv run python evals/run_evals.py       # 记忆质量评估（调用真实 API，跑一次约几分钱）
+uv run python evals/run_evals.py       # 记忆与主动消息质量评估（调用真实 API，跑一次约几分钱）
 ```
 
 设计文档在 `docs/superpowers/specs/`，实施计划在 `docs/superpowers/plans/`。
