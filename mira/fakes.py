@@ -51,6 +51,8 @@ class EchoLLM:
             return {"ops": [], "episode": {"content": "开发模式事件", "importance": 1}}
         if purpose == "reflector":
             return {"patterns": [], "profile": ""}
+        if purpose == "proactive":
+            return {"speak": False, "reason": "开发模式"}
         last = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         said = last.split("【新消息】", 1)[-1].strip()
         return {

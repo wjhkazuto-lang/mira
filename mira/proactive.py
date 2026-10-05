@@ -7,9 +7,17 @@ from datetime import datetime, timedelta
 
 from mira import clock
 from mira.config import Settings, parse_quiet_hours
-from mira.context import format_memory
+from mira.context import format_gap, format_memory
+from mira.llm import LLMBadJSON
+from mira.prompts import render
+from mira.textutil import clip_text
 
 log = logging.getLogger(__name__)
+
+MAX_BUBBLES = 3  # 主动消息最多几条气泡
+BUBBLE_CHARS = 300  # 单条气泡最长多少字（模型偶尔会写长）
+TRANSCRIPT_LINES = 20  # 给模型看的最近对话条数
+_WEEKDAYS = "一二三四五六日"
 
 MIN_USER_GAP = timedelta(hours=4)  # 距最后一条用户消息不足这么久就不开口（人在场）
 EVAL_GAP = timedelta(hours=4)  # 两次"问模型值不值得说"之间至少隔这么久
@@ -38,6 +46,44 @@ class Candidate:
     ref_type: str | None
     ref_id: int | None
     text: str
+
+
+@dataclass
+class Decision:
+    speak: bool
+    kind: str
+    reason: str
+    ref_id: int | None
+    messages: list[str]
+    expression: str | None
+
+
+def parse_decision(data: dict, candidates: list[Candidate]) -> Decision | None:
+    """校验模型输出。任何对不上候选的地方都按沉默处理（None）。"""
+    if not isinstance(data, dict) or not data.get("speak"):
+        return None
+    raw = data.get("messages")
+    if not isinstance(raw, list):
+        return None
+    messages = [clip_text(m.strip(), BUBBLE_CHARS) for m in raw if isinstance(m, str) and m.strip()]
+    messages = messages[:MAX_BUBBLES]
+    if not messages:
+        return None
+    kind = data.get("kind")
+    ref_raw = data.get("ref_id")
+    ref_id = ref_raw if type(ref_raw) is int else None  # 不接受 bool/float/字符串
+    if not any(c.kind == kind and c.ref_id == ref_id for c in candidates):
+        return None
+    reason = data.get("reason")
+    expression = data.get("expression")
+    return Decision(
+        speak=True,
+        kind=kind,
+        reason=reason if isinstance(reason, str) else "",
+        ref_id=ref_id,
+        messages=messages,
+        expression=expression if isinstance(expression, str) else None,
+    )
 
 
 class ProactiveEngine:
@@ -126,3 +172,46 @@ class ProactiveEngine:
             out.append(Candidate("goal", "goal", m.id, format_memory(m)))
 
         return out
+
+    # ---------- 模型决策（唯一花钱的一步） ----------
+
+    async def decide(self) -> Decision | None:
+        """有候选时才调用一次模型，问它值不值得开口、怎么说。"""
+        candidates = self.collect()
+        if not candidates:
+            return None
+        now = self._now()
+        last_user = self._store.latest_user_message()
+        recent = self._store.recent_messages(self._settings.recent_history_tokens)
+        query = "\n".join([c.text for c in candidates] + [m.content for m in recent[-6:]])
+        memories = [s.memory for s in self._retriever.search(query, self._settings.retrieve_top_k)]
+        profile = self._store.current_profile()
+        prompt = render(
+            "proactive",
+            now=f"{now.strftime('%Y-%m-%d')} 周{_WEEKDAYS[now.weekday()]} {now.strftime('%H:%M')}",
+            gap=format_gap(last_user.created_at if last_user else None, now),
+            transcript="\n".join(
+                f"{'你' if m.role == 'user' else 'Mira'}：{clip_text(m.content, BUBBLE_CHARS)}"
+                for m in recent[-TRANSCRIPT_LINES:]
+            ) or "（无）",
+            candidates="\n".join(f"- {c.text}" for c in candidates),
+            memories="\n".join(f"- {format_memory(m)}" for m in memories) or "（无）",
+        )
+        if profile:
+            prompt += f"\n\n【核心档案】（文中的\"TA\"或\"你\"都指对方，不是你自己）\n{profile.content}"
+        messages = [
+            {"role": "system", "content": f"{self._persona}\n\n{self._rules}"},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            data = await self._llm.complete_json(
+                purpose="proactive",
+                model=self._settings.chat_model,
+                messages=messages,
+                max_tokens=1200,
+                temperature=self._settings.chat_temperature,
+            )
+        except LLMBadJSON:
+            log.warning("主动消息：模型返回的 JSON 解析不了，这次按沉默处理")
+            return None
+        return parse_decision(data, candidates)
