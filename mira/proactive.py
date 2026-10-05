@@ -249,4 +249,4 @@ class ProactiveEngine:
             try:
                 self._notifier.notify("Mira", clip_text(decision.messages[0], 120))
             except Exception:
-                log.warning("发送系统通知失败", exc_info=True)
+                log.warning("发送提醒失败", exc_info=True)

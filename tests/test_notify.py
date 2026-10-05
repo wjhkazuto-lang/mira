@@ -1,4 +1,4 @@
-from mira.notify import BUNDLE_ID, NullNotifier, make_notifier
+from mira.notify import DockNotifier, NullNotifier, make_notifier
 
 
 def test_null_when_disabled_or_fake():
@@ -6,51 +6,48 @@ def test_null_when_disabled_or_fake():
     assert isinstance(make_notifier(notifications=True, fake=True), NullNotifier)
 
 
-def test_null_outside_mira_bundle(monkeypatch):
+def test_dock_notifier_when_enabled():
+    assert isinstance(make_notifier(notifications=True, fake=False), DockNotifier)
+
+
+def test_notify_bounces_and_badges_then_clears(monkeypatch):
     import mira.notify as notify
 
-    monkeypatch.setattr(notify, "_current_bundle_id", lambda: "com.apple.Terminal")
-    assert isinstance(make_notifier(notifications=True, fake=False), NullNotifier)
+    calls = []
+    monkeypatch.setattr(notify, "_on_main", lambda f: f())
+    monkeypatch.setattr(notify, "_dock_attention", lambda: calls.append("attention"))
+    monkeypatch.setattr(notify, "_dock_clear_badge", lambda: calls.append("clear"))
+
+    n = DockNotifier()
+    n.notify("Mira", "在吗")
+    assert calls == ["attention"]
+    n.clear()
+    assert calls == ["attention", "clear"]
+    n.clear()  # 没提醒过就不用清，也不会再调 AppKit
+    assert calls == ["attention", "clear"]
 
 
-def test_null_when_bundle_unavailable(monkeypatch):
+def test_notify_failure_is_swallowed(monkeypatch):
     import mira.notify as notify
+
+    def boom(func):
+        raise RuntimeError("no GUI")
+
+    monkeypatch.setattr(notify, "_on_main", boom)
+    DockNotifier().notify("Mira", "在吗")  # 不抛异常
+    DockNotifier().clear()  # 没提醒过，直接返回，也不抛
+
+
+def test_dock_attention_failure_is_swallowed(monkeypatch):
+    import mira.notify as notify
+
+    monkeypatch.setattr(notify, "_on_main", lambda f: f())
 
     def boom():
-        raise ImportError("no Foundation")
+        raise RuntimeError("no dock")
 
-    monkeypatch.setattr(notify, "_current_bundle_id", boom)
-    assert isinstance(make_notifier(notifications=True, fake=False), NullNotifier)
-
-
-def test_builds_mac_notifier_inside_bundle(monkeypatch):
-    import mira.notify as notify
-
-    made = {}
-
-    class StubMac:
-        def __init__(self, on_click=None):
-            made["on_click"] = on_click
-
-    monkeypatch.setattr(notify, "_current_bundle_id", lambda: BUNDLE_ID)
-    monkeypatch.setattr(notify, "MacNotifier", StubMac)
-
-    def click():
-        pass
-
-    out = make_notifier(notifications=True, fake=False, on_click=click)
-    assert isinstance(out, StubMac) and made["on_click"] is click
-
-
-def test_falls_back_when_mac_notifier_fails(monkeypatch):
-    import mira.notify as notify
-
-    def boom(**kw):
-        raise RuntimeError("notifications unavailable")
-
-    monkeypatch.setattr(notify, "_current_bundle_id", lambda: BUNDLE_ID)
-    monkeypatch.setattr(notify, "MacNotifier", boom)
-    assert isinstance(make_notifier(notifications=True, fake=False), NullNotifier)
+    monkeypatch.setattr(notify, "_dock_attention", boom)
+    DockNotifier().notify("Mira", "在吗")  # 不抛异常
 
 
 def test_null_notifier_is_silent():

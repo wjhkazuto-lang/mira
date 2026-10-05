@@ -223,6 +223,34 @@ def _install_window_chrome(window) -> None:
 
 _observers: list = []  # 留住引用，免得被回收
 _quit_observer_class = None  # Objective-C 类只能定义一次
+_activation_observers: list = []
+_activation_observer_class = None
+
+
+def _watch_activation(notifier) -> None:
+    """窗口回到前台时，清掉 Dock 图标上的圆点。"""
+    global _activation_observer_class
+    try:
+        from Foundation import NSNotificationCenter
+
+        if _activation_observer_class is None:
+            from Foundation import NSObject
+
+            class ActivationObserver(NSObject):
+                def appDidBecomeActive_(self, _note):
+                    clear = getattr(self.notifier, "clear", None)
+                    if clear is not None:
+                        clear()
+
+            _activation_observer_class = ActivationObserver
+        observer = _activation_observer_class.alloc().init()
+        observer.notifier = notifier
+        _activation_observers.append(observer)
+        NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+            observer, "appDidBecomeActive:", "NSApplicationDidBecomeActiveNotification", None
+        )
+    except Exception:
+        log.warning("注册窗口激活处理失败", exc_info=True)
 
 
 def _quit_observer(server: ServerThread):
@@ -311,31 +339,14 @@ def _watch(window, server: ServerThread | None, url: str, icon: Path, log_file: 
             return
 
 
-def _activate_window(holder: dict) -> None:
-    """点系统通知时把 Mira 窗口带到前面。"""
-    window = holder.get("window")
-    if window is None:
-        return
-    try:
-        from AppKit import NSApplication
-
-        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-        window.restore()  # 最小化时先恢复
-        window.show()
-    except Exception:
-        log.warning("激活窗口失败", exc_info=True)
-
-
 def _open_window(log_file: Path, html_page: str | None = None, url: str = "", server: ServerThread | None = None,
-                 icon: Path | None = None, holder: dict | None = None) -> None:
+                 icon: Path | None = None) -> None:
     """有 html_page 就先显示它（url 是服务就绪后要切过去的地址），否则直接打开 url。"""
     import webview
 
     window = webview.create_window(
         "Mira", url=None if html_page else url, html=html_page, width=1280, height=860, min_size=(420, 600),
     )
-    if holder is not None:
-        holder["window"] = window  # 点通知的回调要用它把窗口带到前面
     _set_app_name()
     _install_window_chrome(window)
     _on_quit(window, server)
@@ -371,17 +382,14 @@ def _run() -> None:
     elif state == "mira":
         _open_window(url=url, icon=icon, log_file=log_file)  # 已经有一个 Mira 在跑，只开窗口，不另起服务
     else:
-        holder: dict = {}
-        notifier = make_notifier(
-            notifications=settings.notifications, fake=settings.fake,
-            on_click=lambda: _activate_window(holder),
-        )
-        if os.environ.get("MIRA_TEST_NOTIFY") == "1":  # 排查用：启动几秒后发一条测试通知
-            threading.Timer(4.0, lambda: notifier.notify("Mira", "测试通知：点它应该回到 Mira 窗口。")).start()
+        notifier = make_notifier(notifications=settings.notifications, fake=settings.fake)
+        _watch_activation(notifier)  # 窗口回到前台时清掉 Dock 上的圆点
+        if os.environ.get("MIRA_TEST_NOTIFY") == "1":  # 排查用：启动几秒后跳一次 Dock 图标
+            threading.Timer(4.0, lambda: notifier.notify("Mira", "测试提醒")).start()
         server = ServerThread(settings, notifier=notifier)
         server.start()
         try:
-            _open_window(html_page=LOADING_PAGE, url=url, server=server, icon=icon, log_file=log_file, holder=holder)
+            _open_window(html_page=LOADING_PAGE, url=url, server=server, icon=icon, log_file=log_file)
         finally:
             server.stop()
             log.info("Mira 已停止")

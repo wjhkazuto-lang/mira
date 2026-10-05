@@ -49,7 +49,13 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
     persona = settings.persona_path.read_text(encoding="utf-8")
     rules = render("chat_rules", crisis_resources=settings.crisis_resources, expression_hint=theme.prompt_hint())
 
-    # scheduler 在下面才构造；on_activity 只在运行时被调用，所以用 lambda 延迟取值
+    # scheduler 在下面才构造；on_activity 只在运行时被调用，所以延迟取名
+    def _mark_activity() -> None:
+        scheduler.notify_activity()
+        clear = getattr(notifier, "clear", None)  # 用户回话时把 Dock 圆点清掉
+        if clear is not None:
+            clear()
+
     engine = ChatEngine(
         store=store,
         retriever=retriever,
@@ -57,7 +63,7 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
         settings=settings,
         persona=persona,
         rules=rules,
-        on_activity=lambda: scheduler.notify_activity(),
+        on_activity=_mark_activity,
         theme=theme,
     )
     proactive = ProactiveEngine(
