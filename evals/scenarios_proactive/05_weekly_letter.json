@@ -1,5 +1,6 @@
 {"name": "每周信：一周素材 → 2–4 条",
  "now": "2026-10-05T20:30:00+08:00",
+ "job_last_run": {"weekly_letter": "2026-09-27T20:05:00+08:00"},
  "seed_memories": [{"type": "episode", "content": "10-01 把拖了很久的简历改完了", "ago_minutes": 5800, "importance": 3},
                    {"type": "episode", "content": "10-03 跑了五公里，第一次没停下来走", "ago_minutes": 4000, "importance": 3},
                    {"type": "commitment", "content": "下周一把材料交掉", "status": "open", "due_at": "2026-10-08"}],

@@ -141,6 +141,8 @@ async def run_proactive_scenario(scenario: dict, llm, embedder, settings) -> lis
     for m in scenario.get("messages", []):
         clock.t = now - timedelta(minutes=m.get("ago_minutes", 0))
         seeded_ids.add(store.add_message(m["role"], m["content"]).id)
+    for name, iso in scenario.get("job_last_run", {}).items():
+        store.set_job_last_run(name, datetime.fromisoformat(iso))
     clock.t = now
 
     counting = _CountingLLM(llm)

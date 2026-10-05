@@ -287,6 +287,11 @@ class ProactiveEngine:
         if not self._weekly_recheck():
             return False
         now = self._now()
+        if self._store.get_job_last_run("weekly_letter") is None:
+            # 第一次启用：只记一条基线，从下一个周日 20:00 开始按周发（不补"启用之前"的那次）
+            self._store.set_job_last_run("weekly_letter", now)
+            log.info("每周信：第一次启用，等下一个发送日")
+            return False
         week_ago = now - timedelta(days=7)
         episodes = [
             m for m in self._store.list_memories("episode", include_superseded=False) if m.created_at >= week_ago

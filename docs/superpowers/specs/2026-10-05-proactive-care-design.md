@@ -101,7 +101,7 @@ tick（每 30 秒）/ App 启动
 
 ### 3.7 每周信（第三步实现）
 
-- 独立调度：周日（`WEEKLY_LETTER_WEEKDAY`，默认 6）的 `WEEKLY_LETTER_HOUR`（默认 20 点）；`job_state("weekly_letter")` 记上次，距今 <6 天不重复；错过了（周日晚 Mac 睡着）下次开机补发。
+- 独立调度：周日（`WEEKLY_LETTER_WEEKDAY`，默认 6）的 `WEEKLY_LETTER_HOUR`（默认 20 点）；`job_state("weekly_letter")` 记上次，最近的发送时刻之前发过就不重复；错过了（周日晚 Mac 睡着）下次开机补发。第一次启用（从没有过记录）只记一条基线，等下一个周日 20:00 才发——不补"启用之前"的账。
 - 内容用单独提示词 `mira/prompts/weekly.md`：这周的 episode、新建的记忆、承诺/目标进展、核心档案 → 2–4 条气泡，像一封信：这周印象最深的事、看到的变化、一句下周的提醒或关心。
 - 不受"每天一条"限制、不参与冷却；发完就是普通消息，用户回它照常聊。
 

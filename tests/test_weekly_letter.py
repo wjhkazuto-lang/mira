@@ -59,11 +59,24 @@ def test_weekly_target_math():
 
 def test_weekly_ready_first_time_and_next_week(store, clock):
     proactive, _, _, _ = make(store, clock, [])
-    at(clock, "2026-10-07T10:00:00+08:00")  # 周三、从没发过 → 第一封该发了
-    assert proactive.weekly_ready() is True
+    at(clock, "2026-10-07T10:00:00+08:00")
+    assert proactive.weekly_ready() is True  # 从没发过 → 会走一次 run_weekly 记基线
     store.set_job_last_run("weekly_letter", clock.now())
-    assert proactive.weekly_ready() is False  # 本轮已发
+    assert proactive.weekly_ready() is False  # 本轮已过
     at(clock, "2026-10-11T20:01:00+08:00")  # 下周日过了点
+    assert proactive.weekly_ready() is True
+
+
+async def test_run_weekly_first_time_sets_baseline_without_sending(store, clock):
+    at(clock, "2026-10-07T10:00:00+08:00")  # 周三第一次启用
+    proactive, llm, _, _ = make(store, clock, [])
+
+    assert await proactive.run_weekly() is False  # 不发信，只记基线
+    assert llm.calls == []  # 不花钱
+    assert store.get_job_last_run("weekly_letter") == clock.now()
+    assert [m for m in store.list_messages() if m.role == "assistant"] == []
+    assert proactive.weekly_ready() is False  # 本周不会再试
+    at(clock, "2026-10-11T20:01:00+08:00")  # 到下一个周日 20:00 之后才真的发
     assert proactive.weekly_ready() is True
 
 
@@ -89,6 +102,7 @@ def test_weekly_ready_false_when_proactive_off(store, clock):
 
 async def test_run_weekly_sends_and_logs(store, clock):
     at(clock, "2026-10-07T10:00:00+08:00")
+    store.set_job_last_run("weekly_letter", t("2026-09-27T20:05:00+08:00"))  # 上一封是上上周日
     proactive, llm, box, _ = make(store, clock, [
         {"messages": ["这周你连着三天早起了。", "下周材料的事，记得留一天余量。"], "expression": "gentle"},
     ])
@@ -113,6 +127,7 @@ async def test_run_weekly_defers_while_user_just_spoke(store, clock):
 
     assert await proactive.run_weekly() is False  # 下轮再试
     assert llm.calls == []  # 连模型都不叫
+    assert store.get_job_last_run("weekly_letter") is None  # 推迟不算"已处理"，基线也没记
 
 
 async def test_run_weekly_defers_while_replying(store, clock):
@@ -134,6 +149,7 @@ async def test_run_weekly_defers_while_replying(store, clock):
 
 async def test_run_weekly_bad_json_skips_this_week(store, clock):
     at(clock, "2026-10-07T10:00:00+08:00")
+    store.set_job_last_run("weekly_letter", t("2026-09-27T20:05:00+08:00"))
     proactive, _, _, _ = make(store, clock, [LLMBadJSON(raw="x")])
 
     assert await proactive.run_weekly() is not False  # 本轮结束（会记 job_state），本周不再试
@@ -142,6 +158,7 @@ async def test_run_weekly_bad_json_skips_this_week(store, clock):
 
 async def test_run_weekly_empty_messages_skips_this_week(store, clock):
     at(clock, "2026-10-07T10:00:00+08:00")
+    store.set_job_last_run("weekly_letter", t("2026-09-27T20:05:00+08:00"))
     proactive, _, _, _ = make(store, clock, [{"messages": ["", "  "]}])
 
     assert await proactive.run_weekly() is not False
