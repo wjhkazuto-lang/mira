@@ -12,7 +12,19 @@ from mira.retriever import Retriever
 
 EMB = HashEmbedder()
 SETTINGS = load_settings({"MIRA_FAKE": "1", "PROACTIVE": "1"})
+NO_NOTIFY_SETTINGS = load_settings({"MIRA_FAKE": "1", "PROACTIVE": "1", "NOTIFICATIONS": "0"})
 V = np.ones(4, dtype=np.float32) / 2
+
+
+class FakeNotifier:
+    def __init__(self, fail=False):
+        self.calls = []
+        self.fail = fail
+
+    def notify(self, title, body):
+        self.calls.append((title, body))
+        if self.fail:
+            raise RuntimeError("boom")
 
 
 async def instant(_seconds):
@@ -49,11 +61,24 @@ def make(store, clock, script):
     return llm, chat, box
 
 
-def make_proactive(store, clock, llm, chat, notifier=None):
+def make_proactive(store, clock, llm, chat, notifier=None, settings=SETTINGS):
     return ProactiveEngine(
-        store=store, llm=llm, retriever=Retriever(store, EMB, now=clock.now), settings=SETTINGS,
+        store=store, llm=llm, retriever=Retriever(store, EMB, now=clock.now), settings=settings,
         engine=chat, persona="我是 Mira", rules="规则", notifier=notifier, now=clock.now,
     )
+
+
+def seed_due_promise(store, clock):
+    """两天前说过话 + 一条到期承诺（跑完整 run() 的前提条件）。"""
+    at(clock, "2026-10-03T09:00:00+08:00")
+    store.add_message("user", "材料我还没写")
+    add(store, "commitment", "交材料", status="open", due_at=date(2026, 10, 2))
+    at(clock, "2026-10-05T09:00:00+08:00")
+
+
+def speak_script(messages):
+    return [{"speak": True, "kind": "commitment", "ref_id": 1, "reason": "逾期了",
+             "messages": messages if isinstance(messages, list) else [messages]}]
 
 
 def assistants(store):
@@ -153,3 +178,50 @@ async def test_run_drops_when_user_returns_midcall(store, clock):
     assert llm.calls == 1  # 模型确实问了，但最后放弃了
     assert assistants(store) == [] and box.events == []
     assert store.last_proactive_at() is None
+
+
+async def test_run_notifies_with_first_bubble(store, clock):
+    seed_due_promise(store, clock)
+    llm, chat, _ = make(store, clock, speak_script("材料的事，怎么样了？"))
+    notifier = FakeNotifier()
+    proactive = make_proactive(store, clock, llm, chat, notifier=notifier)
+
+    await proactive.run()
+
+    assert notifier.calls == [("Mira", "材料的事，怎么样了？")]
+
+
+async def test_notify_body_is_clipped(store, clock):
+    seed_due_promise(store, clock)
+    llm, chat, _ = make(store, clock, speak_script("长" * 400))
+    notifier = FakeNotifier()
+    proactive = make_proactive(store, clock, llm, chat, notifier=notifier)
+
+    await proactive.run()
+
+    body = notifier.calls[0][1]
+    assert "省略" in body and len(body) < 200
+
+
+async def test_run_skips_notify_when_disabled(store, clock):
+    seed_due_promise(store, clock)
+    llm, chat, _ = make(store, clock, speak_script("在吗"))
+    notifier = FakeNotifier()
+    proactive = make_proactive(store, clock, llm, chat, notifier=notifier, settings=NO_NOTIFY_SETTINGS)
+
+    await proactive.run()
+
+    assert notifier.calls == []
+    assert assistants(store) and store.last_proactive_at() is not None  # 消息照常进聊天
+
+
+async def test_notifier_failure_keeps_message(store, clock):
+    seed_due_promise(store, clock)
+    llm, chat, _ = make(store, clock, speak_script("在吗"))
+    notifier = FakeNotifier(fail=True)
+    proactive = make_proactive(store, clock, llm, chat, notifier=notifier)
+
+    await proactive.run()  # 通知失败不能影响已经说出口的话
+
+    assert notifier.calls == [("Mira", "在吗")]
+    assert assistants(store) and store.last_proactive_at() is not None

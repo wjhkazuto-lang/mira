@@ -3,6 +3,7 @@
 import html
 import json
 import logging
+import os
 import sys
 import tempfile
 import threading
@@ -15,6 +16,7 @@ import uvicorn
 from mira.__main__ import port_in_use, setup_logging
 from mira.config import PROJECT_ROOT, ConfigError, Settings, load_settings
 from mira.embedder import EmbedderLoadError
+from mira.notify import make_notifier
 
 __all__ = ["LOADING_PAGE", "ServerThread", "main", "message_page", "probe_port", "setup_logging"]
 
@@ -81,9 +83,10 @@ class _Server(uvicorn.Server):
 class ServerThread(threading.Thread):
     """在后台线程里跑 Mira 服务。不在主线程，uvicorn 不会接管信号，靠 stop() 停下。"""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, notifier=None):
         super().__init__(name="mira-server", daemon=True)
         self.settings = settings
+        self.notifier = notifier
         self.ready = threading.Event()
         self.error: str | None = None
         self._server: _Server | None = None
@@ -93,7 +96,7 @@ class ServerThread(threading.Thread):
         try:
             from mira.main import create_app
 
-            app = create_app(self.settings)  # 第一次会下载模型，可能要好几分钟
+            app = create_app(self.settings, notifier=self.notifier)  # 第一次会下载模型，可能要好几分钟
             config = uvicorn.Config(
                 app, host=self.settings.host, port=self.settings.port,
                 log_level="warning", log_config=None, access_log=False,  # 日志交给根 logger，进同一个文件
@@ -308,14 +311,31 @@ def _watch(window, server: ServerThread | None, url: str, icon: Path, log_file: 
             return
 
 
+def _activate_window(holder: dict) -> None:
+    """点系统通知时把 Mira 窗口带到前面。"""
+    window = holder.get("window")
+    if window is None:
+        return
+    try:
+        from AppKit import NSApplication
+
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        window.restore()  # 最小化时先恢复
+        window.show()
+    except Exception:
+        log.warning("激活窗口失败", exc_info=True)
+
+
 def _open_window(log_file: Path, html_page: str | None = None, url: str = "", server: ServerThread | None = None,
-                 icon: Path | None = None) -> None:
+                 icon: Path | None = None, holder: dict | None = None) -> None:
     """有 html_page 就先显示它（url 是服务就绪后要切过去的地址），否则直接打开 url。"""
     import webview
 
     window = webview.create_window(
         "Mira", url=None if html_page else url, html=html_page, width=1280, height=860, min_size=(420, 600),
     )
+    if holder is not None:
+        holder["window"] = window  # 点通知的回调要用它把窗口带到前面
     _set_app_name()
     _install_window_chrome(window)
     _on_quit(window, server)
@@ -351,10 +371,17 @@ def _run() -> None:
     elif state == "mira":
         _open_window(url=url, icon=icon, log_file=log_file)  # 已经有一个 Mira 在跑，只开窗口，不另起服务
     else:
-        server = ServerThread(settings)
+        holder: dict = {}
+        notifier = make_notifier(
+            notifications=settings.notifications, fake=settings.fake,
+            on_click=lambda: _activate_window(holder),
+        )
+        if os.environ.get("MIRA_TEST_NOTIFY") == "1":  # 排查用：启动几秒后发一条测试通知
+            threading.Timer(4.0, lambda: notifier.notify("Mira", "测试通知：点它应该回到 Mira 窗口。")).start()
+        server = ServerThread(settings, notifier=notifier)
         server.start()
         try:
-            _open_window(html_page=LOADING_PAGE, url=url, server=server, icon=icon, log_file=log_file)
+            _open_window(html_page=LOADING_PAGE, url=url, server=server, icon=icon, log_file=log_file, holder=holder)
         finally:
             server.stop()
             log.info("Mira 已停止")

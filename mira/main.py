@@ -34,7 +34,8 @@ log = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
-def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder | None = None) -> FastAPI:
+def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder | None = None,
+               notifier=None) -> FastAPI:
     if llm is None:
         llm = EchoLLM() if settings.fake else DeepSeekLLM(settings.deepseek_api_key, settings.deepseek_base_url)
     if embedder is None:
@@ -61,7 +62,7 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
     )
     proactive = ProactiveEngine(
         store=store, llm=llm, retriever=retriever, settings=settings, engine=engine,
-        persona=persona, rules=rules,
+        persona=persona, rules=rules, notifier=notifier,
     )
     scheduler = Scheduler(
         store=store, writer=writer, reflector=reflector, settings=settings,

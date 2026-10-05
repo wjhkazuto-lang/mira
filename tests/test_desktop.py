@@ -133,7 +133,7 @@ def test_server_thread_starts_and_stops(tmp_path, caplog):
 def test_server_thread_file_not_found_without_filename(tmp_path, monkeypatch):
     import mira.main
 
-    def boom(settings):
+    def boom(settings, **kwargs):
         raise FileNotFoundError("缺了什么")
 
     monkeypatch.setattr(mira.main, "create_app", boom)
