@@ -111,7 +111,7 @@ tick（每 30 秒）/ App 启动
 - 只在 Mira.app（bundle 模式）里启用：用 `NSBundle.mainBundle().bundleIdentifier()` 判断（`local.mira.desktop`）；终端模式用 `NullNotifier`（消息照常进聊天，只是不弹）。
 - `NOTIFICATIONS=0` 可关；权限被拒 → 记一次日志，静默降级成"只进聊天"。
 - 通知里显示具体内容（用户已确认）。
-- **待实测**：未签名的 Mira.app 能不能正常发系统通知（macOS 对通知来源有要求）。第一步先在真 App 里发一条测试通知验证；不行就退到备选：Dock 图标跳动（`requestUserAttention`）+ 徽标数字，点 Dock 图标回到窗口。结果如实写进 README 和交接文档。
+- **实测结果（2026-10-05）**：系统通知走不通——launcher 是 shell 脚本、exec 到 uv 的 python 之后进程的 bundle 身份是空的，`UNUserNotificationCenter` 认不出 Mira.app（而且要签名；pywebview 自带的 pyobjc 也没装 UserNotifications 模块）。按备选方案执行：**Dock 图标跳动（`requestUserAttention`）+ 圆点徽标（`dockTile.setBadgeLabel_`）**，点 Dock 图标回到窗口；窗口回到前台或用户开口时圆点消失。代价：提醒本身不带文字（原用户选择"显示具体内容"做不到）——内容在聊天里。
 
 ## 5. 配置（`.env` 新增，都有默认值）
 
@@ -122,7 +122,7 @@ tick（每 30 秒）/ App 启动
 | `PROACTIVE_QUIET_HOURS` | 22-8 | 安静时段：不开口、不通知 |
 | `WEEKLY_LETTER_WEEKDAY` | 6 | 0=周一 … 6=周日 |
 | `WEEKLY_LETTER_HOUR` | 20 | 几点发每周信 |
-| `NOTIFICATIONS` | 1 | 0 = 只进聊天、不弹系统通知 |
+| `NOTIFICATIONS` | 1 | 0 = 主动消息只进聊天，Dock 不跳动、不显示圆点 |
 
 其余常数（4 小时在场间隔、4 小时评估间隔、3 天承诺冷却、14 天目标冷却、72 小时事件窗口、2 天算"好久没聊"）先写在代码里，真需要再升级成配置。
 
