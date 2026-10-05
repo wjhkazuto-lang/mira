@@ -357,3 +357,18 @@ async def test_no_theme_no_expression(mstore, mclock):
     await engine.on_user_message("hi")
     await mclock.advance(10)
     assert all("expression" not in e for e in box.events)
+
+
+async def test_last_chat_gap_ignores_proactive_message(mstore, mclock):
+    from datetime import datetime
+
+    engine, llm, _ = make(mstore, mclock, [reply("嗯")])
+    mclock.t = datetime.fromisoformat("2026-09-05T20:00:00+08:00")
+    mstore.add_message("user", "上次聊的内容")
+    mclock.t = datetime.fromisoformat("2026-09-06T20:00:00+08:00")
+    mstore.add_message("assistant", "主动说的话", meta={"proactive": {"kind": "missing"}})
+    mclock.t = datetime.fromisoformat("2026-10-02T21:00:00+08:00")
+    await engine.on_user_message("我回来了")
+    await mclock.advance(4)
+    # “距上次聊天”按最后一条用户消息算（27 天），不是按主动消息算（26 天）
+    assert "距离上次聊天：27 天" in final_user(llm.calls[0])

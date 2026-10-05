@@ -21,6 +21,7 @@ from mira.config import Settings
 from mira.embedder import Embedder, FastEmbedder
 from mira.fakes import EchoLLM, HashEmbedder
 from mira.llm import LLM, DeepSeekLLM
+from mira.proactive import ProactiveEngine
 from mira.prompts import render
 from mira.reflector import Reflector
 from mira.retriever import Retriever
@@ -44,19 +45,28 @@ def create_app(settings: Settings, *, llm: LLM | None = None, embedder: Embedder
     retriever = Retriever(store, embedder)
     writer = Writer(store, embedder, retriever, llm, settings)
     reflector = Reflector(store, embedder, llm, settings)
-    scheduler = Scheduler(
-        store=store, writer=writer, reflector=reflector, settings=settings,
-        backup=lambda manual: run_backup(settings.db_path, settings.backup_dir, settings.backup_keep, clock.now(), manual=manual),
-    )
+    persona = settings.persona_path.read_text(encoding="utf-8")
+    rules = render("chat_rules", crisis_resources=settings.crisis_resources, expression_hint=theme.prompt_hint())
+
+    # scheduler 在下面才构造；on_activity 只在运行时被调用，所以用 lambda 延迟取值
     engine = ChatEngine(
         store=store,
         retriever=retriever,
         llm=llm,
         settings=settings,
-        persona=settings.persona_path.read_text(encoding="utf-8"),
-        rules=render("chat_rules", crisis_resources=settings.crisis_resources, expression_hint=theme.prompt_hint()),
-        on_activity=scheduler.notify_activity,
+        persona=persona,
+        rules=rules,
+        on_activity=lambda: scheduler.notify_activity(),
         theme=theme,
+    )
+    proactive = ProactiveEngine(
+        store=store, llm=llm, retriever=retriever, settings=settings, engine=engine,
+        persona=persona, rules=rules,
+    )
+    scheduler = Scheduler(
+        store=store, writer=writer, reflector=reflector, settings=settings,
+        backup=lambda manual: run_backup(settings.db_path, settings.backup_dir, settings.backup_keep, clock.now(), manual=manual),
+        proactive=proactive,
     )
 
     @asynccontextmanager

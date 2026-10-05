@@ -41,9 +41,10 @@ class Job:
             raise RuntimeError("boom")
 
 
-def make(store, clock, writer=None, reflector=None, backup=None):
+def make(store, clock, writer=None, reflector=None, backup=None, proactive=None):
     writer, reflector = writer or Job(), reflector or Job()
-    return Scheduler(store=store, writer=writer, reflector=reflector, settings=SETTINGS, now=clock.now, backup=backup), writer, reflector
+    return Scheduler(store=store, writer=writer, reflector=reflector, settings=SETTINGS, now=clock.now,
+                     backup=backup, proactive=proactive), writer, reflector
 
 
 def at(clock, iso):
@@ -448,3 +449,83 @@ async def test_status_backup_error_prefers_manual_when_both(store, clock):
         await s.backup_now()
     st = s.status()
     assert st["backup_error"] == "手动失败" and st["backup_error_manual"] is True
+
+
+class Proactive:
+    def __init__(self, ready=True):
+        self.ready_flag = ready
+        self.runs = 0
+
+    def ready(self):
+        return self.ready_flag
+
+    async def run(self):
+        self.runs += 1
+
+
+async def test_startup_order_writer_proactive_reflector(store, clock):
+    order = []
+
+    class W(Job):
+        async def run(self):
+            self.runs += 1
+            order.append("writer")
+
+    class R(Job):
+        async def run(self):
+            self.runs += 1
+            order.append("reflector")
+
+    class P(Proactive):
+        async def run(self):
+            self.runs += 1
+            order.append("proactive")
+
+    store.add_message("user", "hi")
+    s, _, _ = make(store, clock, writer=W(), reflector=R(), proactive=P())
+    await s.startup()
+    assert order == ["writer", "proactive", "reflector"]
+
+
+async def test_proactive_job_records_last_run(store, clock):
+    p = Proactive()
+    s, _, _ = make(store, clock, proactive=p)
+    await s.startup()
+    assert p.runs == 1 and store.get_job_last_run("proactive") == clock.now()
+
+
+async def test_proactive_skipped_when_not_ready(store, clock):
+    p = Proactive(ready=False)
+    s, _, _ = make(store, clock, proactive=p)
+    await s.startup()
+    await s.tick()
+    assert p.runs == 0 and store.get_job_last_run("proactive") is None
+
+
+async def test_no_proactive_keeps_behaviour(store, clock):
+    s, _, _ = make(store, clock)
+    await s.startup()
+    clock.advance(48 * 3600)
+    await s.tick()
+    assert store.get_job_last_run("proactive") is None
+
+
+async def test_writer_ignores_assistant_only_pending(store, clock):
+    s, w, _ = make(store, clock)
+    store.add_message("assistant", "主动说的话", meta={"proactive": {"kind": "missing"}})
+    clock.advance(20 * 60)
+    await s.tick()
+    assert w.runs == 0
+    st = s.status()
+    assert st["pending_messages"] == 0 and st["state"] == "idle"
+    store.add_message("user", "在")  # 用户回应后，两条一起被整理
+    clock.advance(20 * 60)
+    await s.tick()
+    assert w.runs == 1
+
+
+async def test_startup_writer_skips_assistant_only(store, clock):
+    store.add_message("assistant", "主动说的话", meta={"proactive": {"kind": "missing"}})
+    s, w, _ = make(store, clock)
+    await s.startup()
+    assert w.runs == 0

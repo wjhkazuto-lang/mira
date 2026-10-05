@@ -31,6 +31,7 @@ class Scheduler:
         now: Callable[[], datetime] = clock.now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         backup: Callable[[bool], Path] | None = None,  # 同步函数（参数=是否手动），放进线程执行；None 表示不备份
+        proactive=None,  # 有 ready() -> bool 和 run()；None 表示不主动开口
     ):
         self._store = store
         self._writer = writer
@@ -39,6 +40,7 @@ class Scheduler:
         self._now = now
         self._sleep = sleep
         self._backup = backup
+        self._proactive = proactive
         self._last_activity = now()
         self._lock = asyncio.Lock()
         self._backup_lock = asyncio.Lock()  # 备份不用等模型任务
@@ -47,7 +49,7 @@ class Scheduler:
         self._errors: dict[str, str] = {}
 
     def status(self) -> dict:
-        pending = self._store.pending_message_count()
+        pending = self._store.pending_user_message_count()  # 主动消息不算待整理
         now = self._now()
         due = self._last_activity + timedelta(minutes=self._settings.idle_write_minutes)
         retry = self._not_before.get("writer")
@@ -82,11 +84,16 @@ class Scheduler:
         last = self._store.get_job_last_run("backup")
         return last is None or self._now() - last >= BACKUP_INTERVAL
 
+    def _proactive_due(self) -> bool:
+        return self._proactive is not None and self._proactive.ready()
+
     async def startup(self) -> None:
         if self._backup_due():  # 先留快照，再让模型改记忆
             await self._run_backup()
-        if self._store.unprocessed_messages():
+        if self._store.unprocessed_user_messages():
             await self._run_writer()
+        if self._proactive_due():  # 昨晚的话先变成记忆，“打开先说”才有准头
+            await self._run("proactive", self._proactive.run)
         last = self._store.get_job_last_run("reflector")
         if last is None or self._now() - last > timedelta(hours=24):
             await self._run_reflector()
@@ -94,8 +101,10 @@ class Scheduler:
     async def tick(self) -> None:
         now = self._now()
         idle = now - self._last_activity >= timedelta(minutes=self._settings.idle_write_minutes)
-        if idle and self._store.unprocessed_messages():
+        if idle and self._store.unprocessed_user_messages():
             await self._run_writer()
+        if self._proactive_due():
+            await self._run("proactive", self._proactive.run)
         today_at_hour = now.replace(hour=self._settings.reflect_hour, minute=0, second=0, microsecond=0)
         last = self._store.get_job_last_run("reflector")
         # 离上次至少 12 小时才跑凌晨这次；Mac 凌晨在睡觉时，满 24 小时也补跑，保证每天一次

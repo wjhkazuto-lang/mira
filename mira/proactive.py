@@ -28,6 +28,7 @@ COMMITMENT_COOLDOWN = timedelta(days=3)  # 同一条承诺多久内不重复提
 GOAL_COOLDOWN = timedelta(days=14)  # 同一个目标多久内不重复推
 
 CANDIDATE_KINDS = ("commitment", "missing", "checkin", "goal")
+REF_TYPES = {"commitment": "commitment", "missing": None, "checkin": "episode", "goal": "goal"}
 
 
 def quiet_now(hours: str, now: datetime) -> bool:
@@ -215,3 +216,37 @@ class ProactiveEngine:
             log.warning("主动消息：模型返回的 JSON 解析不了，这次按沉默处理")
             return None
         return parse_decision(data, candidates)
+
+    # ---------- 开口 ----------
+
+    def _recheck(self) -> bool:
+        """模型调用花了几秒，开口前把"人在场/没回应/在聊"再查一遍。"""
+        now = self._now()
+        last_user = self._store.latest_user_message()
+        if last_user is None or now - last_user.created_at < MIN_USER_GAP:
+            return False
+        last_spoke = self._store.last_proactive_at()
+        if last_spoke is not None and last_spoke >= last_user.created_at:
+            return False
+        return not self._engine.busy()
+
+    async def run(self) -> None:
+        """后台任务入口：判断 → 开口或沉默。沉默也正常结束（调度器会记下评估时间）。"""
+        decision = await self.decide()
+        if decision is None:
+            return
+        if not self._recheck():
+            log.info("主动消息：刚要开口时用户回来了，放弃（kind=%s）", decision.kind)
+            return
+        meta = {"proactive": {"kind": decision.kind, "reason": decision.reason, "ref_id": decision.ref_id}}
+        if not await self._engine.announce_proactive(decision.messages, meta=meta, expression=decision.expression):
+            log.info("主动消息：发出前发现有正在进行的回复，放弃")
+            return
+        ref_type = REF_TYPES[decision.kind]
+        self._store.add_proactive_log(decision.kind, ref_type, decision.ref_id)
+        log.info("主动开口（%s）：%s", decision.kind, decision.reason)
+        if self._notifier is not None and self._settings.notifications:
+            try:
+                self._notifier.notify("Mira", clip_text(decision.messages[0], 120))
+            except Exception:
+                log.warning("发送系统通知失败", exc_info=True)

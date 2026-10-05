@@ -152,6 +152,25 @@ class ChatEngine:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
 
+    def busy(self) -> bool:
+        """是否有正在进行的等待/回复/重试。主动消息用它判断要不要插话。"""
+        return self._task is not None and not self._task.done()
+
+    async def announce_proactive(self, texts: list[str], meta: dict, expression: str | None = None) -> bool:
+        """主动开口：像回复一样发气泡，但不属于任何批次。返回是否真的发了。"""
+        if self.busy():
+            return False
+        expr = self._theme.pick(expression, "normal") if self._theme else None
+        for i, text in enumerate(texts):
+            await self._broadcast({"type": "typing"})
+            await self._sleep(bubble_delay(text))
+            msg = self._store.add_message("assistant", text, meta=meta if i == 0 else None)
+            event = {"type": "bubble", "id": msg.id, "text": text, "created_at": msg.created_at.isoformat()}
+            if expr:
+                event["expression"] = expr
+            await self._broadcast(event)
+        return True
+
     async def _cancel_task(self) -> bool:
         """取消正在进行的等待/回复；返回它是否还在运行。"""
         task = self._task
@@ -195,7 +214,8 @@ class ChatEngine:
         commitments = self._store.open_commitments()
         goals = self._store.open_goals()
         profile = self._store.current_profile()
-        previous = self._store.latest_message(exclude_batch=batch_id)
+        # “距上次聊天”按最后一条用户消息算：主动开口先说的话不算“聊天”
+        previous = self._store.latest_user_message(exclude_batch=batch_id)
         messages = build_chat_messages(
             persona=self._persona,
             rules=self._rules,
